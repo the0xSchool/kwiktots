@@ -8,7 +8,7 @@ install:
 	cd frontend && npm ci
 
 dev:
-	@trap 'kill 0' EXIT INT TERM; \
+	@trap 'trap - EXIT INT TERM; kill 0' EXIT INT TERM; \
 	(cd backend && BACKEND_PORT=$(BACKEND_PORT) uv run uvicorn app.main:app --reload --port $(BACKEND_PORT)) & \
 	(cd frontend && BACKEND_PORT=$(BACKEND_PORT) npm run dev -- --port $(FRONTEND_PORT)) & \
 	wait

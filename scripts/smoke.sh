@@ -31,10 +31,26 @@ fail() {
   exit 1
 }
 
+check_port_free() {
+  local url="$1"
+  local name="$2"
+  local port="$3"
+  if curl -s -o /dev/null "$url"; then
+    fail "port $port is already in use, so $name cannot start there; set BACKEND_PORT/FRONTEND_PORT to a free port"
+  fi
+}
+
+# Waits for $url to answer, but fails fast (instead of timing out) if $pid
+# has already exited, so a server that dies on startup is caught rather
+# than silently passing against something else already on the port.
 wait_for() {
   local url="$1"
   local name="$2"
+  local pid="$3"
   for _ in $(seq 1 50); do
+    if ! kill -0 "$pid" 2>/dev/null; then
+      fail "$name exited before becoming ready"
+    fi
     if curl -s -o /dev/null "$url"; then
       return 0
     fi
@@ -43,20 +59,26 @@ wait_for() {
   fail "$name did not become ready at $url"
 }
 
+check_port_free "http://localhost:${BACKEND_PORT}/" "the backend" "$BACKEND_PORT"
+
 echo "Starting backend on port ${BACKEND_PORT}..."
-(cd "$ROOT_DIR/backend" && uv run uvicorn app.main:app --port "$BACKEND_PORT") &
+(cd "$ROOT_DIR/backend" && exec uv run uvicorn app.main:app --port "$BACKEND_PORT") &
 BACKEND_PID=$!
 
-wait_for "http://localhost:${BACKEND_PORT}/health" "backend"
+wait_for "http://localhost:${BACKEND_PORT}/health" "backend" "$BACKEND_PID"
+
+check_port_free "http://localhost:${FRONTEND_PORT}/" "the frontend" "$FRONTEND_PORT"
 
 echo "Starting frontend dev server on port ${FRONTEND_PORT}..."
-# Run the local vite binary directly (not via "npm run dev" or "npx"), so
-# this script's PID is the actual vite process and cleanup can kill it.
-(cd "$ROOT_DIR/frontend" && BACKEND_PORT="$BACKEND_PORT" ./node_modules/.bin/vite --port "$FRONTEND_PORT" --strictPort) &
+# Run the local vite binary directly (not via "npm run dev" or "npx"), with
+# an explicit exec, so this script's PID is the actual vite process and
+# cleanup can kill it (rather than relying on bash's tail-call optimization
+# for the last command in a subshell).
+(cd "$ROOT_DIR/frontend" && BACKEND_PORT="$BACKEND_PORT" exec ./node_modules/.bin/vite --port "$FRONTEND_PORT" --strictPort) &
 FRONTEND_PID=$!
 
-wait_for "http://localhost:${FRONTEND_PORT}/" "frontend"
-wait_for "${BASE_URL}/notes" "proxy"
+wait_for "http://localhost:${FRONTEND_PORT}/" "frontend" "$FRONTEND_PID"
+wait_for "${BASE_URL}/notes" "proxy" "$FRONTEND_PID"
 
 echo "Creating a note..."
 create_response=$(curl -s -w '\n%{http_code}' -X POST "${BASE_URL}/notes" \
