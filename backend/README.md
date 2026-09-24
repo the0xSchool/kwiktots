@@ -19,6 +19,13 @@ The API serves `http://localhost:8000`. `CORS_ORIGINS` sets the allowed
 origins as a comma-separated list; it defaults to `http://localhost:5173`,
 the Vite dev server.
 
+## API notes
+
+- `title` is required, trimmed, and 1 to 200 characters after trimming.
+- `body` is optional. Leaving it out of a `POST` or `PUT` request defaults
+  it to an empty string; it can also be an empty string of up to 10,000
+  characters.
+
 ## Test
 
 ```bash

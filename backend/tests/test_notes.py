@@ -30,6 +30,13 @@ def test_create_note_allows_empty_body(client):
     assert response.json()["body"] == ""
 
 
+def test_create_note_without_body_key_defaults_to_empty_string(client):
+    response = client.post("/notes", json={"title": "Groceries"})
+
+    assert response.status_code == 201
+    assert response.json()["body"] == ""
+
+
 def test_create_note_strips_title_whitespace(client):
     response = create_note(client, title="  Groceries  ", body="")
 

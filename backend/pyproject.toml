@@ -21,9 +21,6 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
-# FastAPI's dependency injection relies on calling Depends() as an
-# argument default; that is the documented, idiomatic pattern.
-ignore = ["B008"]
 
 [build-system]
 requires = ["hatchling"]

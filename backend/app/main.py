@@ -1,6 +1,7 @@
 """The FastAPI app for the in-memory notes API."""
 
 import os
+from typing import Annotated
 
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,13 +26,14 @@ def get_store(request: Request) -> NoteStore:
     return request.app.state.store
 
 
+StoreDep = Annotated[NoteStore, Depends(get_store)]
+
 app = FastAPI(title="Kwiktots Notes API")
 app.state.store = NoteStore()
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins_from_env(),
-    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -43,17 +45,17 @@ def health() -> dict[str, str]:
 
 
 @app.get("/notes", response_model=list[Note])
-def list_notes(store: NoteStore = Depends(get_store)) -> list[Note]:
+def list_notes(store: StoreDep) -> list[Note]:
     return store.list_notes()
 
 
 @app.post("/notes", response_model=Note, status_code=status.HTTP_201_CREATED)
-def create_note(payload: NoteIn, store: NoteStore = Depends(get_store)) -> Note:
+def create_note(payload: NoteIn, store: StoreDep) -> Note:
     return store.create(payload.title, payload.body)
 
 
 @app.get("/notes/{note_id}", response_model=Note)
-def get_note(note_id: str, store: NoteStore = Depends(get_store)) -> Note:
+def get_note(note_id: str, store: StoreDep) -> Note:
     note = store.get(note_id)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -61,7 +63,7 @@ def get_note(note_id: str, store: NoteStore = Depends(get_store)) -> Note:
 
 
 @app.put("/notes/{note_id}", response_model=Note)
-def update_note(note_id: str, payload: NoteIn, store: NoteStore = Depends(get_store)) -> Note:
+def update_note(note_id: str, payload: NoteIn, store: StoreDep) -> Note:
     note = store.update(note_id, payload.title, payload.body)
     if note is None:
         raise HTTPException(status_code=404, detail="Note not found")
@@ -69,7 +71,7 @@ def update_note(note_id: str, payload: NoteIn, store: NoteStore = Depends(get_st
 
 
 @app.delete("/notes/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_note(note_id: str, store: NoteStore = Depends(get_store)) -> None:
+def delete_note(note_id: str, store: StoreDep) -> None:
     deleted = store.delete(note_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Note not found")
