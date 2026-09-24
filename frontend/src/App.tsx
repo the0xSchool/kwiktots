@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   ApiError,
   createNote,
@@ -12,9 +12,17 @@ import { NoteList } from './components/NoteList'
 import { fieldErrorsFor, messageFor } from './errorMessage'
 
 const NEW_NOTE = 'new'
+const NOTE_GONE_MESSAGE =
+  'That note no longer exists, perhaps because the server restarted.'
+
+type PendingFocus = 'title' | 'new-note-button' | null
 
 function sortByUpdatedDesc(notes: Note[]): Note[] {
   return [...notes].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
+}
+
+function isNotFound(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404
 }
 
 function App() {
@@ -22,9 +30,28 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | undefined>(undefined)
   const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  const [isSaving, setIsSaving] = useState(false)
+  const [savingId, setSavingId] = useState<string | undefined>(undefined)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | undefined>(undefined)
+
+  const selectedIdRef = useRef<string | undefined>(selectedId)
+  const pendingFocus = useRef<PendingFocus>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const newNoteButtonRef = useRef<HTMLButtonElement>(null)
+
+  useEffect(() => {
+    selectedIdRef.current = selectedId
+  }, [selectedId])
+
+  useEffect(() => {
+    if (pendingFocus.current === 'title' && selectedId !== undefined) {
+      titleInputRef.current?.focus()
+      pendingFocus.current = null
+    } else if (pendingFocus.current === 'new-note-button' && selectedId === undefined) {
+      newNoteButtonRef.current?.focus()
+      pendingFocus.current = null
+    }
+  }, [selectedId])
 
   useEffect(() => {
     let cancelled = false
@@ -50,6 +77,7 @@ function App() {
   const selectedNote = notes.find((note) => note.id === selectedId)
   const isEditorOpen = selectedId !== undefined
   const isNew = selectedId === NEW_NOTE
+  const isSaving = savingId !== undefined && savingId === selectedId
 
   function openNewNote() {
     setSelectedId(NEW_NOTE)
@@ -63,17 +91,38 @@ function App() {
     setFormError(undefined)
   }
 
+  function closeEditorAsGone(targetId: string) {
+    setNotes((current) => current.filter((note) => note.id !== targetId))
+    if (selectedIdRef.current === targetId) {
+      setSelectedId(undefined)
+      setFieldErrors({})
+      setFormError(NOTE_GONE_MESSAGE)
+      pendingFocus.current = 'new-note-button'
+    }
+  }
+
   async function handleSave(title: string, body: string) {
-    setIsSaving(true)
+    const targetId = selectedId
+    if (targetId === undefined) return
+    const targetIsNew = targetId === NEW_NOTE
+    const existingNote = targetIsNew
+      ? undefined
+      : notes.find((note) => note.id === targetId)
+
+    setSavingId(targetId)
     setFieldErrors({})
     setFormError(undefined)
+
     try {
-      if (isNew) {
+      if (targetIsNew) {
         const created = await createNote({ title, body })
         setNotes((current) => sortByUpdatedDesc([...current, created]))
-        setSelectedId(created.id)
-      } else if (selectedNote) {
-        const updated = await updateNote(selectedNote.id, { title, body })
+        if (selectedIdRef.current === targetId) {
+          pendingFocus.current = 'title'
+          setSelectedId(created.id)
+        }
+      } else if (existingNote) {
+        const updated = await updateNote(existingNote.id, { title, body })
         setNotes((current) =>
           sortByUpdatedDesc(
             current.map((note) => (note.id === updated.id ? updated : note)),
@@ -81,28 +130,44 @@ function App() {
         )
       }
     } catch (error) {
-      if (error instanceof ApiError && error.status === 422) {
-        setFieldErrors(fieldErrorsFor(error))
+      if (!targetIsNew && isNotFound(error)) {
+        closeEditorAsGone(targetId)
+        return
       }
-      setFormError(messageFor(error))
+      if (selectedIdRef.current === targetId) {
+        if (error instanceof ApiError && error.status === 422) {
+          setFieldErrors(fieldErrorsFor(error))
+        }
+        setFormError(messageFor(error))
+      }
     } finally {
-      setIsSaving(false)
+      setSavingId((current) => (current === targetId ? undefined : current))
     }
   }
 
   async function handleDelete() {
     if (!selectedNote) return
+    const targetId = selectedNote.id
     const confirmed = window.confirm(
       `Delete "${selectedNote.title}"? This cannot be undone.`,
     )
     if (!confirmed) return
 
     try {
-      await deleteNote(selectedNote.id)
-      setNotes((current) => current.filter((note) => note.id !== selectedNote.id))
-      setSelectedId(undefined)
+      await deleteNote(targetId)
+      setNotes((current) => current.filter((note) => note.id !== targetId))
+      if (selectedIdRef.current === targetId) {
+        setSelectedId(undefined)
+        pendingFocus.current = 'new-note-button'
+      }
     } catch (error) {
-      setFormError(messageFor(error))
+      if (isNotFound(error)) {
+        closeEditorAsGone(targetId)
+        return
+      }
+      if (selectedIdRef.current === targetId) {
+        setFormError(messageFor(error))
+      }
     }
   }
 
@@ -110,7 +175,7 @@ function App() {
     <div className="app">
       <header className="app-header">
         <h1>Kwiktots</h1>
-        <button type="button" onClick={openNewNote}>
+        <button type="button" ref={newNoteButtonRef} onClick={openNewNote}>
           New note
         </button>
       </header>
@@ -129,24 +194,23 @@ function App() {
         </section>
 
         <section className="editor-pane" aria-label="Editor">
+          {formError ? (
+            <p className="status error" role="alert">
+              {formError}
+            </p>
+          ) : null}
           {isEditorOpen ? (
-            <>
-              {formError ? (
-                <p className="status error" role="alert">
-                  {formError}
-                </p>
-              ) : null}
-              <NoteEditor
-                key={selectedId}
-                initialTitle={isNew ? '' : (selectedNote?.title ?? '')}
-                initialBody={isNew ? '' : (selectedNote?.body ?? '')}
-                isNew={isNew}
-                isSaving={isSaving}
-                fieldErrors={fieldErrors}
-                onSave={handleSave}
-                onDelete={handleDelete}
-              />
-            </>
+            <NoteEditor
+              key={selectedId}
+              initialTitle={isNew ? '' : (selectedNote?.title ?? '')}
+              initialBody={isNew ? '' : (selectedNote?.body ?? '')}
+              isNew={isNew}
+              isSaving={isSaving}
+              fieldErrors={fieldErrors}
+              titleInputRef={titleInputRef}
+              onSave={handleSave}
+              onDelete={handleDelete}
+            />
           ) : (
             <p className="status">Select a note, or create a new one.</p>
           )}

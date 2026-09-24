@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import type { FormEvent } from 'react'
+import type { FormEvent, RefObject } from 'react'
 
 export interface FieldErrors {
   title?: string
@@ -12,6 +12,7 @@ interface NoteEditorProps {
   isNew: boolean
   isSaving: boolean
   fieldErrors: FieldErrors
+  titleInputRef?: RefObject<HTMLInputElement | null>
   onSave: (title: string, body: string) => void
   onDelete: () => void
 }
@@ -22,6 +23,7 @@ export function NoteEditor({
   isNew,
   isSaving,
   fieldErrors,
+  titleInputRef,
   onSave,
   onDelete,
 }: NoteEditorProps) {
@@ -45,6 +47,7 @@ export function NoteEditor({
         <input
           id="note-title"
           type="text"
+          ref={titleInputRef}
           value={title}
           onChange={(event) => setTitle(event.target.value)}
           aria-invalid={Boolean(fieldErrors.title)}

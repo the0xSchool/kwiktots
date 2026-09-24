@@ -139,6 +139,9 @@ describe('api client', () => {
 
     expect(error).toBeInstanceOf(ApiError)
     expect((error as ApiError).status).toBe(422)
+    expect((error as ApiError).detail).toEqual([
+      { loc: ['body', 'title'], msg: 'field required' },
+    ])
   })
 
   it('falls back to a generic message when the error body has no detail', async () => {
