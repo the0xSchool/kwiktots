@@ -14,6 +14,8 @@ import { fieldErrorsFor, messageFor } from './errorMessage'
 const NEW_NOTE = 'new'
 const NOTE_GONE_MESSAGE =
   'That note no longer exists, perhaps because the server restarted.'
+const NOTE_GONE_KEEP_DRAFT_MESSAGE =
+  'That note no longer exists, perhaps because the server restarted. Your text is kept as a new note. Press Save to create it.'
 
 type PendingFocus = 'title' | 'new-note-button' | null
 
@@ -33,6 +35,9 @@ function App() {
   const [savingId, setSavingId] = useState<string | undefined>(undefined)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [formError, setFormError] = useState<string | undefined>(undefined)
+  const [draft, setDraft] = useState<{ title: string; body: string } | undefined>(
+    undefined,
+  )
 
   const selectedIdRef = useRef<string | undefined>(selectedId)
   const pendingFocus = useRef<PendingFocus>(null)
@@ -81,12 +86,14 @@ function App() {
 
   function openNewNote() {
     setSelectedId(NEW_NOTE)
+    setDraft(undefined)
     setFieldErrors({})
     setFormError(undefined)
   }
 
   function selectNote(id: string) {
     setSelectedId(id)
+    setDraft(undefined)
     setFieldErrors({})
     setFormError(undefined)
   }
@@ -131,7 +138,14 @@ function App() {
       }
     } catch (error) {
       if (!targetIsNew && isNotFound(error)) {
-        closeEditorAsGone(targetId)
+        setNotes((current) => current.filter((note) => note.id !== targetId))
+        if (selectedIdRef.current === targetId) {
+          setDraft({ title, body })
+          setFieldErrors({})
+          setFormError(NOTE_GONE_KEEP_DRAFT_MESSAGE)
+          pendingFocus.current = 'title'
+          setSelectedId(NEW_NOTE)
+        }
         return
       }
       if (selectedIdRef.current === targetId) {
@@ -158,6 +172,7 @@ function App() {
       setNotes((current) => current.filter((note) => note.id !== targetId))
       if (selectedIdRef.current === targetId) {
         setSelectedId(undefined)
+        setFormError(undefined)
         pendingFocus.current = 'new-note-button'
       }
     } catch (error) {
@@ -202,8 +217,8 @@ function App() {
           {isEditorOpen ? (
             <NoteEditor
               key={selectedId}
-              initialTitle={isNew ? '' : (selectedNote?.title ?? '')}
-              initialBody={isNew ? '' : (selectedNote?.body ?? '')}
+              initialTitle={isNew ? (draft?.title ?? '') : (selectedNote?.title ?? '')}
+              initialBody={isNew ? (draft?.body ?? '') : (selectedNote?.body ?? '')}
               isNew={isNew}
               isSaving={isSaving}
               fieldErrors={fieldErrors}

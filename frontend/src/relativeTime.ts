@@ -6,7 +6,7 @@ const UNITS: Array<[Intl.RelativeTimeFormatUnit, number]> = [
   ['minute', 60],
 ]
 
-const formatter = new Intl.RelativeTimeFormat(undefined, { numeric: 'auto' })
+const formatter = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
 
 export function relativeTime(isoDate: string, now: Date = new Date()): string {
   const then = new Date(isoDate)

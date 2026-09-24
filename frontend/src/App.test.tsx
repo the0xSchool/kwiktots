@@ -241,7 +241,7 @@ describe('App', () => {
     })
   })
 
-  it('removes a note and closes the editor on a 404 from save', async () => {
+  it('keeps the typed text as a new draft when a save gets a 404', async () => {
     const user = userEvent.setup()
     const fetchMock = vi.fn()
     fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
@@ -250,6 +250,10 @@ describe('App', () => {
     render(<App />)
     await user.click(await screen.findByText('Groceries'))
 
+    const titleField = await screen.findByLabelText(/title/i)
+    await user.clear(titleField)
+    await user.type(titleField, 'Groceries v2')
+
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ detail: 'Note not found' }, 404),
     )
@@ -257,10 +261,13 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: /save/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
-      /no longer exists/i,
+      /kept as a new note/i,
     )
+    // The dead note is gone from the list.
     expect(screen.queryByText('Groceries')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText(/title/i)).not.toBeInTheDocument()
+    // The editor stays open as a new draft, with the typed text kept.
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Groceries v2')
+    expect(screen.queryByRole('button', { name: /delete/i })).not.toBeInTheDocument()
   })
 
   it('removes a note and closes the editor on a 404 from delete', async () => {
