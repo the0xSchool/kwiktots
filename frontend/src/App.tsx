@@ -215,6 +215,7 @@ function App() {
         </section>
 
         <dialog ref={dialogRef} onCancel={closeEditor}>
+          <h2>{isNew ? 'New note' : 'Edit note'}</h2>
           {formError ? (
             <p className="status error" role="alert">
               {formError}

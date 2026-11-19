@@ -79,7 +79,7 @@ export function NoteEditor({
         <button type="submit" disabled={isSaving}>
           {isSaving ? 'Saving…' : 'Save'}
         </button>
-        <button type="button" onClick={onCancel}>
+        <button type="button" className="secondary" onClick={onCancel}>
           Cancel
         </button>
       </div>

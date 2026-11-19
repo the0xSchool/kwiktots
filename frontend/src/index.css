@@ -62,6 +62,12 @@ button {
   padding: var(--space-2) var(--space-4);
 }
 
+button.secondary {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-text);
+}
+
 button.danger {
   background: transparent;
   border-color: var(--color-danger);
@@ -271,4 +277,22 @@ button:disabled {
 .chat-form input {
   flex: 1;
   min-width: 0;
+}
+
+dialog {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+dialog h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.1rem;
 }
