@@ -7,6 +7,7 @@ import {
   updateNote,
   type Note,
 } from './api'
+import { Chat } from './components/Chat'
 import { NoteEditor, type FieldErrors } from './components/NoteEditor'
 import { NoteList } from './components/NoteList'
 import { fieldErrorsFor, messageFor } from './errorMessage'
@@ -230,6 +231,8 @@ function App() {
             <p className="status">Select a note, or create a new one.</p>
           )}
         </section>
+
+        <Chat />
       </div>
     </div>
   )

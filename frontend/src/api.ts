@@ -80,3 +80,16 @@ export function updateNote(id: string, input: NoteInput): Promise<Note> {
 export function deleteNote(id: string): Promise<void> {
   return request<void>(`/notes/${id}`, { method: 'DELETE' })
 }
+
+const AGENT_URL = import.meta.env.VITE_AGENT_URL as string | undefined
+
+export async function sendChat(message: string): Promise<string> {
+  if (!AGENT_URL) return `Fake agent: you said "${message}"`
+  const response = await fetch(`${AGENT_URL}/agent/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ message }),
+  })
+  if (!response.ok) throw new ApiError(response.status, undefined)
+  return ((await response.json()) as { reply: string }).reply
+}
