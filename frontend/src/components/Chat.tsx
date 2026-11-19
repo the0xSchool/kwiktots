@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react'
+import { useEffect, useRef, useState, type FormEvent } from 'react'
 import { sendChat } from '../api'
 
 interface Message {
@@ -9,6 +9,11 @@ interface Message {
 export function Chat() {
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
+  const endRef = useRef<HTMLLIElement>(null)
+
+  useEffect(() => {
+    endRef.current?.scrollIntoView?.({ block: 'end' })
+  }, [messages])
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -29,6 +34,7 @@ export function Chat() {
             {m.text}
           </li>
         ))}
+        <li ref={endRef} aria-hidden="true" />
       </ul>
       <form className="chat-form" onSubmit={handleSubmit}>
         <input
