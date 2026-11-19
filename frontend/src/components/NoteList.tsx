@@ -11,11 +11,11 @@ function preview(body: string): string {
 
 interface NoteListProps {
   notes: Note[]
-  selectedId: string | undefined
-  onSelect: (id: string) => void
+  onEdit: (id: string) => void
+  onDelete: (note: Note) => void
 }
 
-export function NoteList({ notes, selectedId, onSelect }: NoteListProps) {
+export function NoteList({ notes, onEdit, onDelete }: NoteListProps) {
   if (notes.length === 0) {
     return <p className="empty-state">No notes yet</p>
   }
@@ -26,17 +26,20 @@ export function NoteList({ notes, selectedId, onSelect }: NoteListProps) {
         <li key={note.id}>
           <button
             type="button"
-            className={
-              note.id === selectedId ? 'note-summary is-selected' : 'note-summary'
-            }
-            aria-current={note.id === selectedId}
-            onClick={() => onSelect(note.id)}
+            className="note-summary"
+            onClick={() => onEdit(note.id)}
           >
             <span className="note-summary-title">{note.title}</span>
             <span className="note-summary-preview">{preview(note.body)}</span>
             <span className="note-summary-updated">
               Updated {relativeTime(note.updated_at)}
             </span>
+          </button>
+          <button type="button" aria-label="Edit note" onClick={() => onEdit(note.id)}>
+            ✎
+          </button>
+          <button type="button" aria-label="Delete note" onClick={() => onDelete(note)}>
+            🗑
           </button>
         </li>
       ))}

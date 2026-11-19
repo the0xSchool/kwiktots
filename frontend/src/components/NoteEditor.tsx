@@ -9,23 +9,21 @@ export interface FieldErrors {
 interface NoteEditorProps {
   initialTitle: string
   initialBody: string
-  isNew: boolean
   isSaving: boolean
   fieldErrors: FieldErrors
   titleInputRef?: RefObject<HTMLInputElement | null>
   onSave: (title: string, body: string) => void
-  onDelete: () => void
+  onCancel: () => void
 }
 
 export function NoteEditor({
   initialTitle,
   initialBody,
-  isNew,
   isSaving,
   fieldErrors,
   titleInputRef,
   onSave,
-  onDelete,
+  onCancel,
 }: NoteEditorProps) {
   const [title, setTitle] = useState(initialTitle)
   const [body, setBody] = useState(initialBody)
@@ -81,11 +79,9 @@ export function NoteEditor({
         <button type="submit" disabled={isSaving}>
           {isSaving ? 'Saving…' : 'Save'}
         </button>
-        {!isNew ? (
-          <button type="button" className="danger" onClick={onDelete}>
-            Delete
-          </button>
-        ) : null}
+        <button type="button" onClick={onCancel}>
+          Cancel
+        </button>
       </div>
     </form>
   )
