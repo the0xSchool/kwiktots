@@ -44,9 +44,17 @@ function App() {
   const pendingFocus = useRef<PendingFocus>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const newNoteButtonRef = useRef<HTMLButtonElement>(null)
+  const dialogRef = useRef<HTMLDialogElement>(null)
 
   useEffect(() => {
     selectedIdRef.current = selectedId
+  }, [selectedId])
+
+  useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if (selectedId !== undefined && !dialog.open) dialog.showModal()
+    if (selectedId === undefined && dialog.open) dialog.close()
   }, [selectedId])
 
   useEffect(() => {
@@ -99,14 +107,16 @@ function App() {
     setFormError(undefined)
   }
 
+  function closeEditor() {
+    setSelectedId(undefined)
+    setDraft(undefined)
+    setFieldErrors({})
+    setFormError(undefined)
+  }
+
   function closeEditorAsGone(targetId: string) {
     setNotes((current) => current.filter((note) => note.id !== targetId))
-    if (selectedIdRef.current === targetId) {
-      setSelectedId(undefined)
-      setFieldErrors({})
-      setFormError(NOTE_GONE_MESSAGE)
-      pendingFocus.current = 'new-note-button'
-    }
+    setFormError(NOTE_GONE_MESSAGE)
   }
 
   async function handleSave(title: string, body: string) {
@@ -125,10 +135,7 @@ function App() {
       if (targetIsNew) {
         const created = await createNote({ title, body })
         setNotes((current) => sortByUpdatedDesc([...current, created]))
-        if (selectedIdRef.current === targetId) {
-          pendingFocus.current = 'title'
-          setSelectedId(created.id)
-        }
+        if (selectedIdRef.current === targetId) closeEditor()
       } else if (existingNote) {
         const updated = await updateNote(existingNote.id, { title, body })
         setNotes((current) =>
@@ -136,6 +143,7 @@ function App() {
             current.map((note) => (note.id === updated.id ? updated : note)),
           ),
         )
+        if (selectedIdRef.current === targetId) closeEditor()
       }
     } catch (error) {
       if (!targetIsNew && isNotFound(error)) {
@@ -160,30 +168,22 @@ function App() {
     }
   }
 
-  async function handleDelete() {
-    if (!selectedNote) return
-    const targetId = selectedNote.id
+  async function handleDelete(note: Note) {
+    const targetId = note.id
     const confirmed = window.confirm(
-      `Delete "${selectedNote.title}"? This cannot be undone.`,
+      `Delete "${note.title}"? This cannot be undone.`,
     )
     if (!confirmed) return
 
     try {
       await deleteNote(targetId)
       setNotes((current) => current.filter((note) => note.id !== targetId))
-      if (selectedIdRef.current === targetId) {
-        setSelectedId(undefined)
-        setFormError(undefined)
-        pendingFocus.current = 'new-note-button'
-      }
     } catch (error) {
       if (isNotFound(error)) {
         closeEditorAsGone(targetId)
         return
       }
-      if (selectedIdRef.current === targetId) {
-        setFormError(messageFor(error))
-      }
+      setFormError(messageFor(error))
     }
   }
 
@@ -198,6 +198,11 @@ function App() {
 
       <div className="app-body">
         <section className="list-pane" aria-label="Notes">
+          {formError && !isEditorOpen ? (
+            <p className="status error" role="alert">
+              {formError}
+            </p>
+          ) : null}
           {loading ? <p className="status">Loading notes…</p> : null}
           {loadError ? (
             <p className="status error" role="alert">
@@ -205,11 +210,11 @@ function App() {
             </p>
           ) : null}
           {!loading && !loadError ? (
-            <NoteList notes={notes} selectedId={selectedId} onSelect={selectNote} />
+            <NoteList notes={notes} onEdit={selectNote} onDelete={handleDelete} />
           ) : null}
         </section>
 
-        <section className="editor-pane" aria-label="Editor">
+        <dialog ref={dialogRef} onCancel={closeEditor}>
           {formError ? (
             <p className="status error" role="alert">
               {formError}
@@ -220,17 +225,14 @@ function App() {
               key={selectedId}
               initialTitle={isNew ? (draft?.title ?? '') : (selectedNote?.title ?? '')}
               initialBody={isNew ? (draft?.body ?? '') : (selectedNote?.body ?? '')}
-              isNew={isNew}
               isSaving={isSaving}
               fieldErrors={fieldErrors}
               titleInputRef={titleInputRef}
               onSave={handleSave}
-              onDelete={handleDelete}
+              onCancel={closeEditor}
             />
-          ) : (
-            <p className="status">Select a note, or create a new one.</p>
-          )}
-        </section>
+          ) : null}
+        </dialog>
 
         <Chat />
       </div>
