@@ -219,3 +219,53 @@ button:disabled {
   display: flex;
   gap: var(--space-2);
 }
+
+.chat-pane {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.chat-pane h2 {
+  margin: 0 0 var(--space-3);
+  font-size: 1.1rem;
+}
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chat-message.me {
+  align-self: flex-end;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.chat-message.assistant {
+  align-self: flex-start;
+  background: var(--color-bg);
+  border-radius: var(--radius);
+  padding: var(--space-2) var(--space-3);
+}
+
+.chat-form {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+}
+
+.chat-form input {
+  flex: 1;
+  min-width: 0;
+}
