@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { ApiError, createNote, deleteNote, listNotes, updateNote, type Note } from './api'
-import { Chat } from './components/Chat'
+import { Chat, type SheetStop } from './components/Chat'
 import { NoteEditor, type NoteBanner, type NoteFields } from './components/NoteEditor'
 import { NoteList } from './components/NoteList'
 import { messageFor } from './errorMessage'
@@ -86,6 +86,7 @@ function App() {
   const [banner, setBanner] = useState<NoteBanner | undefined>(undefined)
   // On a phone: false shows the list, true shows the open note.
   const [onNoteScreen, setOnNoteScreen] = useState(false)
+  const [sheetFull, setSheetFull] = useState(false)
   const [panes, setPanes] = useState<Panes>(loadPanes)
 
   const newNoteButtonRef = useRef<HTMLButtonElement>(null)
@@ -212,6 +213,13 @@ function App() {
     setBanner(undefined)
   }
 
+  // Folded is remembered across reloads. Full screen (phones) is not.
+  function changeSheetStop(stop: SheetStop) {
+    setSheetFull(stop === 'full')
+    const folded = stop === 'folded'
+    if (folded !== panes.assistantFolded) changePanes({ assistantFolded: folded })
+  }
+
   function changePanes(change: Partial<Panes>) {
     const next = { ...panes, ...change }
     setPanes(next)
@@ -320,6 +328,7 @@ function App() {
   if (onNoteScreen) appClass += ' show-note'
   if (panes.assistantFolded) appClass += ' wide-note'
   if (panes.noteClosed) appClass += ' wide-list'
+  if (sheetFull && !panes.assistantFolded) appClass += ' sheet-full'
 
   return (
     <div className={appClass}>
@@ -372,8 +381,8 @@ function App() {
       </main>
 
       <Chat
-        folded={panes.assistantFolded}
-        onToggle={() => changePanes({ assistantFolded: !panes.assistantFolded })}
+        stop={panes.assistantFolded ? 'folded' : sheetFull ? 'full' : 'default'}
+        onStop={changeSheetStop}
       />
     </div>
   )
