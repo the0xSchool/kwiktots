@@ -148,8 +148,8 @@ button:disabled {
 .note-list li {
   position: relative; /* the title button's click area fills the row */
   display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+  align-items: center;
+  gap: var(--space-4);
   padding: var(--space-3) var(--space-4);
 }
 
@@ -165,6 +165,14 @@ button:disabled {
 .note-list li.is-current {
   background: var(--color-bg);
   box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.note-summary {
+  flex: 1;
+  min-width: 0; /* lets the preview shrink and show its ellipsis */
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 /* The note title is a button that opens the note. Its ::after stretches over
@@ -208,64 +216,100 @@ button.note-open:focus-visible::after {
   font-size: 0.8rem;
 }
 
-/* ---------- Open note (middle card) ---------- */
+.note-actions {
+  position: relative; /* keeps the pencil and bin above the row's click area */
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* ---------- Open note: the middle card is the editor ---------- */
 
 .note-pane {
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Fill the screen below the top bar, so the body has room to write in. */
+  min-height: calc(100vh - 4rem - 2 * var(--space-6));
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
   padding: var(--space-6);
-  /* Fill the screen below the top bar. */
-  min-height: calc(100vh - 4rem - 2 * var(--space-6));
 }
 
-.page-error {
-  margin: var(--space-6) var(--space-6) 0;
+.note-pane > .status.error {
+  margin: 0 0 var(--space-4);
 }
 
-/* Back (phones), then Edit, Delete and Close on the right. */
-.note-bar {
+/* Title on the left, the close button in the card's top-right corner. */
+.note-head {
   display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  /* Pull the quiet buttons into the card's corner so they line up with its padding. */
-  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) var(--space-2) 0;
+  align-items: flex-start;
+  gap: var(--space-4);
 }
 
-.note-bar-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin-left: auto;
+/* Title and body are plain text fields dressed as the page: no box until you
+   point at them or type, so the note reads like a document. */
+.note-title-input,
+.note-body-input {
+  /* Pull the 1px border and 8px padding out to the left, so the text lines up
+     with the card's padding edge. */
+  margin-left: calc(-1 * (var(--space-2) + 1px));
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--color-text);
+}
+
+.note-title-input::placeholder,
+.note-body-input::placeholder {
+  color: var(--color-text-muted);
+  opacity: 1; /* Firefox fades placeholders by default */
+}
+
+.note-title-input:hover,
+.note-body-input:hover {
+  border-color: var(--color-border);
+}
+
+/* While you type, a text-muted edge (5.92:1) marks the field instead of the
+   3px ring, which would box in every line you write. */
+.note-title-input:focus,
+.note-body-input:focus {
+  outline: none;
+  border-color: var(--color-text-muted);
+}
+
+.note-title-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+}
+
+.note-body-input {
+  flex: 1;
+  resize: none;
+  /* Fill the card's width: pull the right edge out too, matching the left. */
+  margin-right: calc(-1 * (var(--space-2) + 1px));
+  line-height: 1.5;
+}
+
+/* "Saving…", "Updated just now", "Add a title to save". */
+.note-status {
+  margin: var(--space-1) 0 var(--space-3);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+/* Pull the 38px button into the corner so it does not push the title down. */
+.note-close {
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) 0 0;
 }
 
 /* Back is only needed on phones; see the narrow-screen block at the end. */
 .back-button {
   display: none;
-}
-
-.note-view {
-  /* A comfortable reading width: about 65 characters a line. */
-  max-width: 36rem;
-}
-
-.note-view h2 {
-  margin: 0 0 var(--space-1);
-  font-size: 1.25rem;
-  overflow-wrap: anywhere;
-}
-
-.note-view-updated {
-  margin: 0 0 var(--space-4);
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
-}
-
-.note-view-body {
-  margin: 0;
-  white-space: pre-wrap; /* keep the line breaks the person typed */
-  overflow-wrap: anywhere;
 }
 
 /* A quiet square button that holds one icon. */
@@ -298,27 +342,8 @@ button.icon-button.danger:hover {
   border-radius: var(--radius);
 }
 
-/* ---------- Form fields (note dialog and chat) ---------- */
+/* ---------- Chat field ---------- */
 
-.note-editor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.field label {
-  font-weight: 600;
-  font-size: 0.9rem;
-}
-
-.field input,
-.field textarea,
 .chat-form input {
   /* text-muted, not border: a field's edge needs 3:1 against the surface. */
   border: 1px solid var(--color-text-muted);
@@ -326,53 +351,6 @@ button.icon-button.danger:hover {
   padding: var(--space-2) var(--space-3);
   background: var(--color-bg);
   color: var(--color-text);
-}
-
-.field textarea {
-  resize: vertical;
-  min-height: 8rem;
-}
-
-.field-error {
-  color: var(--color-danger);
-  font-size: 0.85rem;
-  margin: 0;
-}
-
-.editor-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-/* ---------- Note dialog ---------- */
-
-dialog {
-  width: min(36rem, calc(100vw - 2 * var(--space-4)));
-  background: var(--color-surface);
-  color: var(--color-text);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius);
-  padding: var(--space-6);
-}
-
-/* Focus moves straight to the Title field, so the dialog box needs no ring. */
-dialog:focus {
-  outline: none;
-}
-
-dialog::backdrop {
-  background: var(--color-backdrop);
-}
-
-dialog h2 {
-  margin: 0 0 var(--space-4);
-  font-size: 1.1rem;
-}
-
-dialog .status.error {
-  margin: 0 0 var(--space-4);
 }
 
 /* ---------- Assistant panel ---------- */
@@ -477,8 +455,8 @@ dialog .status.error {
   display: none;
 }
 
-/* Note closed completely: the list card takes the whole notes area. Opening a
-   note from the list brings the card back. */
+/* Note closed completely: the list card takes the whole notes area, exactly the
+   approved layout. Opening a note from the list brings the card back. */
 .app.wide-list .notes-body {
   grid-template-columns: minmax(0, 1fr);
 }
@@ -506,10 +484,6 @@ dialog .status.error {
     margin: var(--space-4);
   }
 
-  .page-error {
-    margin: var(--space-4) var(--space-4) 0;
-  }
-
   /* The list screen, or the open-note screen with a Back button. */
   .app.show-note .list-pane,
   .app:not(.show-note) .note-pane {
@@ -529,13 +503,16 @@ dialog .status.error {
 
   .back-button {
     display: inline-flex;
+    align-self: flex-start; /* the card is a flex column; don't stretch */
+    margin-bottom: var(--space-4);
   }
 
-  /* The Assistant folds to its title bar, held on the bottom edge of the screen. */
+  /* The Assistant folds to its title bar, held on the bottom edge of the screen:
+     the phone's version of the strip on the right edge. */
   .app.wide-note .chat-pane {
     position: sticky;
     bottom: 0;
-    align-self: end;
+    align-self: end; /* don't stretch to fill the page's last row */
     height: auto;
   }
 
@@ -547,7 +524,8 @@ dialog .status.error {
     display: block;
   }
 
-  /* The chevron points the way the panel will move: down to fold it, up to open it. */
+  /* As on wide screens, the chevron points the way the panel will move:
+     down to fold it away, up to pull it back. */
   .chat-toggle svg {
     transform: rotate(90deg);
   }
@@ -557,9 +535,5 @@ dialog .status.error {
     height: min(32rem, 80vh);
     border-left: none;
     border-top: 1px solid var(--color-border);
-  }
-
-  dialog {
-    padding: var(--space-4);
   }
 }

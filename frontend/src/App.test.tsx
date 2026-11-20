@@ -19,13 +19,30 @@ const NOTE_B = {
   updated_at: '2026-01-01T00:00:00Z',
 }
 
-// Note titles show in the list and in the open note, so look in the list.
+// Note titles show in the list and in the editor, so look in the list.
 function inList() {
   return within(screen.getByRole('region', { name: 'Notes' }))
 }
 
-function inOpenNote() {
-  return within(screen.getByRole('region', { name: 'Open note' }))
+type Handler = (body: unknown) => Response
+
+// A fake server: one handler per "METHOD /path". Anything else fails the test.
+function fakeApi(routes: Record<string, Handler>) {
+  const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+    const key = `${init?.method ?? 'GET'} ${url}`
+    const handler = routes[key]
+    if (!handler) return Promise.reject(new Error(`unexpected request ${key}`))
+    return Promise.resolve(handler(init?.body ? JSON.parse(String(init.body)) : undefined))
+  })
+  vi.stubGlobal('fetch', fetchMock)
+  return fetchMock
+}
+
+// The bodies sent with one kind of request, e.g. calls(fetchMock, 'POST /api/notes').
+function calls(fetchMock: ReturnType<typeof fakeApi>, key: string): unknown[] {
+  return fetchMock.mock.calls
+    .filter(([url, init]) => `${init?.method ?? 'GET'} ${url}` === key)
+    .map(([, init]) => (init?.body ? JSON.parse(String(init.body)) : undefined))
 }
 
 function jsonResponse(body: unknown, status = 200) {
@@ -38,6 +55,8 @@ function jsonResponse(body: unknown, status = 200) {
 describe('App', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
+    vi.restoreAllMocks()
+    localStorage.clear()
   })
 
   it('renders the list of notes, newest updated first', async () => {
@@ -92,90 +111,162 @@ describe('App', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('boom')
   })
 
-  it('creates a note', async () => {
+  it('opens the newest note in the editor, and switches when another title is clicked', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([]))
-    vi.stubGlobal('fetch', fetchMock)
+    fakeApi({ 'GET /api/notes': () => jsonResponse([NOTE_B, NOTE_A]) })
+
+    render(<App />)
+    expect(await screen.findByLabelText('Title')).toHaveValue('Groceries')
+    expect(screen.getByLabelText('Body')).toHaveValue('Milk, eggs, bread')
+    expect(inList().getByRole('button', { name: 'Groceries' })).toHaveAttribute('aria-current', 'true')
+
+    await user.click(inList().getByRole('button', { name: 'Trip plan' }))
+    expect(screen.getByLabelText('Title')).toHaveValue('Trip plan')
+    expect(screen.getByLabelText('Body')).toHaveValue('Book flights')
+    expect(inList().getByRole('button', { name: 'Trip plan' })).toHaveAttribute('aria-current', 'true')
+    expect(inList().getByRole('button', { name: 'Groceries' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('creates a new note once a title is typed, and lists it', async () => {
+    const user = userEvent.setup()
+    const fetchMock = fakeApi({
+      'GET /api/notes': () => jsonResponse([]),
+      'POST /api/notes': () => jsonResponse(NOTE_A, 201),
+    })
 
     render(<App />)
     await screen.findByText('No notes yet')
-
-    fetchMock.mockResolvedValueOnce(jsonResponse(NOTE_A, 201))
-    fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
-
     await user.click(screen.getByRole('button', { name: /new note/i }))
-    await user.type(screen.getByLabelText(/title/i), 'Groceries')
-    await user.type(screen.getByLabelText(/body/i), 'Milk, eggs, bread')
-    await user.click(screen.getByRole('button', { name: /save/i }))
 
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        '/api/notes',
-        expect.objectContaining({ method: 'POST' }),
-      )
-    })
-    expect(await inList().findByText('Groceries')).toBeInTheDocument()
+    const title = screen.getByLabelText('Title')
+    expect(title).toHaveFocus()
+    expect(screen.getByText('Add a title to save')).toBeInTheDocument()
+
+    await user.type(title, 'Groceries')
+    await waitFor(() => expect(calls(fetchMock, 'POST /api/notes')).toHaveLength(1))
+    expect(calls(fetchMock, 'POST /api/notes')[0]).toEqual({ title: 'Groceries', body: '' })
+    expect(await inList().findByRole('button', { name: 'Groceries' })).toHaveAttribute(
+      'aria-current',
+      'true',
+    )
   })
 
-  it('edits a note', async () => {
+  it('does not create a note that has no title', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
-    vi.stubGlobal('fetch', fetchMock)
+    const fetchMock = fakeApi({ 'GET /api/notes': () => jsonResponse([]) })
 
     render(<App />)
-    await user.click(await screen.findByRole('button', { name: /edit note/i }))
+    await screen.findByText('No notes yet')
+    await user.click(screen.getByRole('button', { name: /new note/i }))
+    await user.type(screen.getByLabelText('Body'), 'Just a body')
+    await new Promise((resolve) => setTimeout(resolve, 700))
 
-    const titleField = await screen.findByLabelText(/title/i)
-    expect(titleField).toHaveValue('Groceries')
+    expect(calls(fetchMock, 'POST /api/notes')).toHaveLength(0)
+    expect(screen.getByText('Add a title to save')).toBeInTheDocument()
+  })
 
-    const updated = { ...NOTE_A, title: 'Groceries v2' }
-    fetchMock.mockResolvedValueOnce(jsonResponse(updated))
-
-    await user.clear(titleField)
-    await user.type(titleField, 'Groceries v2')
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/notes/${NOTE_A.id}`,
-        expect.objectContaining({ method: 'PUT' }),
-      )
+  it('saves an edit after a pause and updates the list', async () => {
+    const user = userEvent.setup()
+    const updated = { ...NOTE_A, body: 'Milk, eggs, bread and jam', updated_at: '2026-01-03T00:00:00Z' }
+    const fetchMock = fakeApi({
+      'GET /api/notes': () => jsonResponse([NOTE_A]),
+      [`PUT /api/notes/${NOTE_A.id}`]: () => jsonResponse(updated),
     })
-    expect(await inList().findByText('Groceries v2')).toBeInTheDocument()
+
+    render(<App />)
+    await user.type(await screen.findByLabelText('Body'), ' and jam')
+    expect(screen.getByText('Saving…')).toBeInTheDocument()
+
+    await waitFor(() => expect(calls(fetchMock, `PUT /api/notes/${NOTE_A.id}`)).toHaveLength(1))
+    expect(calls(fetchMock, `PUT /api/notes/${NOTE_A.id}`)[0]).toEqual({
+      title: 'Groceries',
+      body: 'Milk, eggs, bread and jam',
+    })
+    expect(await inList().findByText('Milk, eggs, bread and jam')).toBeInTheDocument()
+    expect(screen.queryByText('Saving…')).not.toBeInTheDocument()
+  })
+
+  it('moves between title and body with Enter and Backspace', async () => {
+    const user = userEvent.setup()
+    fakeApi({ 'GET /api/notes': () => jsonResponse([NOTE_A]) })
+
+    render(<App />)
+    const title = await screen.findByLabelText('Title')
+    const body = screen.getByLabelText<HTMLTextAreaElement>('Body')
+
+    await user.click(title)
+    await user.keyboard('{Enter}')
+    expect(body).toHaveFocus()
+    expect(body.selectionStart).toBe(0)
+    expect(title).toHaveValue('Groceries')
+
+    await user.keyboard('{Backspace}')
+    expect(title).toHaveFocus()
+    expect(body).toHaveValue('Milk, eggs, bread')
+  })
+
+  it('shows a failed save with Try again, which sends it again', async () => {
+    const user = userEvent.setup()
+    let attempts = 0
+    const fetchMock = fakeApi({
+      'GET /api/notes': () => jsonResponse([NOTE_A]),
+      [`PUT /api/notes/${NOTE_A.id}`]: (body) => {
+        attempts += 1
+        return attempts === 1
+          ? jsonResponse({ detail: 'boom' }, 500)
+          : jsonResponse({ ...NOTE_A, ...(body as object) })
+      },
+    })
+
+    render(<App />)
+    await user.type(await screen.findByLabelText('Body'), '!')
+    expect(await screen.findByRole('alert')).toHaveTextContent('Not saved: boom')
+
+    await user.click(screen.getByRole('button', { name: 'Try again' }))
+    await waitFor(() => expect(calls(fetchMock, `PUT /api/notes/${NOTE_A.id}`)).toHaveLength(2))
+    await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+  })
+
+  it('keeps the text as a new note when a save gets a 404', async () => {
+    const user = userEvent.setup()
+    const recreated = { ...NOTE_A, id: '33333333-3333-3333-3333-333333333333', body: 'Milk, eggs, bread!' }
+    const fetchMock = fakeApi({
+      'GET /api/notes': () => jsonResponse([NOTE_A]),
+      [`PUT /api/notes/${NOTE_A.id}`]: () => jsonResponse({ detail: 'Note not found' }, 404),
+      'POST /api/notes': () => jsonResponse(recreated, 201),
+    })
+
+    render(<App />)
+    await user.type(await screen.findByLabelText('Body'), '!')
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/kept as a new note/i)
+    await waitFor(() => expect(calls(fetchMock, 'POST /api/notes')).toHaveLength(1))
+    expect(calls(fetchMock, 'POST /api/notes')[0]).toEqual({ title: 'Groceries', body: 'Milk, eggs, bread!' })
+    expect(screen.getByLabelText('Body')).toHaveValue('Milk, eggs, bread!')
   })
 
   it('deletes a note after confirming', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
-    vi.stubGlobal('fetch', fetchMock)
+    const fetchMock = fakeApi({
+      'GET /api/notes': () => jsonResponse([NOTE_A]),
+      [`DELETE /api/notes/${NOTE_A.id}`]: () => new Response(null, { status: 204 }),
+    })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<App />)
     await inList().findByText('Groceries')
-
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
-    fetchMock.mockResolvedValueOnce(jsonResponse([]))
-
     await user.click(screen.getByRole('button', { name: /delete note/i }))
 
     expect(window.confirm).toHaveBeenCalled()
-    await waitFor(() => {
-      expect(fetchMock).toHaveBeenCalledWith(
-        `/api/notes/${NOTE_A.id}`,
-        expect.objectContaining({ method: 'DELETE' }),
-      )
-    })
+    expect(calls(fetchMock, `DELETE /api/notes/${NOTE_A.id}`)).toHaveLength(1)
     expect(await screen.findByText('No notes yet')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /new note/i })).toHaveFocus()
   })
 
   it('does not delete when the confirmation is declined', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
-    vi.stubGlobal('fetch', fetchMock)
+    const fetchMock = fakeApi({ 'GET /api/notes': () => jsonResponse([NOTE_A]) })
     vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<App />)
@@ -184,140 +275,76 @@ describe('App', () => {
 
     expect(window.confirm).toHaveBeenCalled()
     expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(inList().getByText('Groceries')).toBeInTheDocument()
   })
 
-  it('shows a validation error from a 422 next to the title field', async () => {
+  it('opens the next note down after deleting the open one', async () => {
     const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-    await screen.findByText('No notes yet')
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(
-        { detail: [{ loc: ['body', 'title'], msg: 'field required' }] },
-        422,
-      ),
-    )
-
-    await user.click(screen.getByRole('button', { name: /new note/i }))
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    const titleField = await screen.findByLabelText(/title/i)
-    expect(titleField).toHaveAccessibleDescription(/field required/i)
-  })
-
-  it('keeps the typed text as a new draft when a save gets a 404', async () => {
-    const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-    await user.click(await screen.findByRole('button', { name: /edit note/i }))
-
-    const titleField = await screen.findByLabelText(/title/i)
-    await user.clear(titleField)
-    await user.type(titleField, 'Groceries v2')
-
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ detail: 'Note not found' }, 404),
-    )
-
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /kept as a new note/i,
-    )
-    // The dead note is gone from the list.
-    expect(screen.queryByText('Groceries')).not.toBeInTheDocument()
-    // The editor stays open as a new draft, with the typed text kept.
-    expect(screen.getByLabelText(/title/i)).toHaveValue('Groceries v2')
-  })
-
-  it('removes a note and closes the editor on a 404 from delete', async () => {
-    const user = userEvent.setup()
-    const fetchMock = vi.fn()
-    fetchMock.mockResolvedValueOnce(jsonResponse([NOTE_A]))
-    vi.stubGlobal('fetch', fetchMock)
+    fakeApi({
+      'GET /api/notes': () => jsonResponse([NOTE_A, NOTE_B]),
+      [`DELETE /api/notes/${NOTE_A.id}`]: () => new Response(null, { status: 204 }),
+    })
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<App />)
     await inList().findByText('Groceries')
+    await user.click(screen.getByRole('button', { name: 'Delete note "Groceries"' }))
 
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse({ detail: 'Note not found' }, 404),
-    )
-
-    await user.click(screen.getByRole('button', { name: /delete note/i }))
-
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      /no longer exists/i,
-    )
-    expect(screen.queryByText('Groceries')).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Title')).toHaveValue('Trip plan'))
+    expect(inList().getByRole('button', { name: 'Trip plan' })).toHaveFocus()
   })
 
-  it('shows the newest note in the middle, and switches when another title is clicked', async () => {
+  it('removes a note and says so when a delete gets a 404', async () => {
     const user = userEvent.setup()
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([NOTE_A, NOTE_B])))
+    fakeApi({
+      'GET /api/notes': () => jsonResponse([NOTE_A]),
+      [`DELETE /api/notes/${NOTE_A.id}`]: () => jsonResponse({ detail: 'Note not found' }, 404),
+    })
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<App />)
     await inList().findByText('Groceries')
-    expect(inOpenNote().getByRole('heading', { name: 'Groceries' })).toBeInTheDocument()
-    expect(inOpenNote().getByText('Milk, eggs, bread')).toBeInTheDocument()
-    expect(inList().getByRole('button', { name: 'Groceries' })).toHaveAttribute('aria-current', 'true')
+    await user.click(screen.getByRole('button', { name: /delete note/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no longer exists/i)
+    expect(screen.queryByText('Groceries')).not.toBeInTheDocument()
+  })
+
+  it('closes the note pane completely and opens it again from the list', async () => {
+    const user = userEvent.setup()
+    fakeApi({ 'GET /api/notes': () => jsonResponse([NOTE_A, NOTE_B]) })
+
+    const { container } = render(<App />)
+    await screen.findByLabelText('Title')
+    await user.click(screen.getByRole('button', { name: 'Close note' }))
+
+    expect(container.firstChild).toHaveClass('wide-list')
+    expect(inList().getByRole('button', { name: 'Groceries' })).toHaveFocus()
+    expect(inList().getByRole('button', { name: 'Groceries' })).not.toHaveAttribute('aria-current')
+    expect(localStorage.getItem('kwiktots.wide')).toBe('list')
 
     await user.click(inList().getByRole('button', { name: 'Trip plan' }))
-    expect(inOpenNote().getByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
-    expect(inOpenNote().getByText('Book flights')).toBeInTheDocument()
-    expect(inList().getByRole('button', { name: 'Trip plan' })).toHaveAttribute('aria-current', 'true')
-    expect(inList().getByRole('button', { name: 'Groceries' })).not.toHaveAttribute('aria-current')
+    expect(container.firstChild).not.toHaveClass('wide-list')
+    expect(screen.getByLabelText('Title')).toHaveValue('Trip plan')
   })
 
-  it('returns to the open note when the edit dialog is cancelled', async () => {
+  it('folds and unfolds the Assistant, and never closes it together with the note', async () => {
     const user = userEvent.setup()
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([NOTE_A, NOTE_B])))
+    fakeApi({ 'GET /api/notes': () => jsonResponse([NOTE_A]) })
 
-    render(<App />)
-    await user.click(await inList().findByRole('button', { name: 'Trip plan' }))
-    await user.click(screen.getByRole('button', { name: /edit note/i }))
-    expect(screen.getByLabelText(/title/i)).toHaveValue('Trip plan')
+    const { container } = render(<App />)
+    await screen.findByLabelText('Title')
+    const toggle = screen.getByRole('button', { name: 'Assistant panel' })
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
 
-    await user.click(screen.getByRole('button', { name: /cancel/i }))
-    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
-    expect(inOpenNote().getByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
-  })
+    await user.click(toggle)
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument()
+    expect(container.firstChild).toHaveClass('wide-note')
 
-  it('shows the next note down after deleting the open note', async () => {
-    const user = userEvent.setup()
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([NOTE_A, NOTE_B]))
-    vi.stubGlobal('fetch', fetchMock)
-    vi.spyOn(window, 'confirm').mockReturnValue(true)
-
-    render(<App />)
-    await inList().findByText('Groceries')
-    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
-    await user.click(screen.getByRole('button', { name: /delete note/i }))
-
-    expect(await inOpenNote().findByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
-    expect(inList().queryByText('Groceries')).not.toBeInTheDocument()
-  })
-
-  it('shows a new note in the middle once it is saved', async () => {
-    const user = userEvent.setup()
-    const created = { ...NOTE_B, updated_at: '2026-01-03T00:00:00Z' }
-    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([NOTE_A]))
-    vi.stubGlobal('fetch', fetchMock)
-
-    render(<App />)
-    await inList().findByText('Groceries')
-    fetchMock.mockResolvedValueOnce(jsonResponse(created, 201))
-    await user.click(screen.getByRole('button', { name: /new note/i }))
-    await user.type(screen.getByLabelText(/title/i), 'Trip plan')
-    await user.click(screen.getByRole('button', { name: /save/i }))
-
-    expect(await inOpenNote().findByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
+    // Closing the note unfolds the Assistant: one of them is always open.
+    await user.click(screen.getByRole('button', { name: 'Close note' }))
+    expect(toggle).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument()
   })
 })

@@ -1,5 +1,4 @@
 import { ApiError } from './api'
-import type { FieldErrors } from './components/NoteEditor'
 
 interface ValidationIssue {
   loc?: unknown
@@ -27,23 +26,4 @@ export function messageFor(error: unknown): string {
     return error.message
   }
   return 'Something went wrong'
-}
-
-export function fieldErrorsFor(error: unknown): FieldErrors {
-  if (!(error instanceof ApiError) || !isValidationIssues(error.detail)) {
-    return {}
-  }
-
-  const fieldErrors: FieldErrors = {}
-  for (const issue of error.detail) {
-    const loc = Array.isArray(issue.loc) ? issue.loc : []
-    const field = loc[loc.length - 1]
-    const msg = typeof issue.msg === 'string' ? issue.msg : 'Invalid value'
-    if (field === 'title') {
-      fieldErrors.title = msg
-    } else if (field === 'body') {
-      fieldErrors.body = msg
-    }
-  }
-  return fieldErrors
 }

@@ -44,6 +44,9 @@ export function Chat({ folded, onToggle }: ChatProps) {
     <section className="chat-pane" aria-labelledby="chat-title">
       <div className="chat-header">
         <h2 id="chat-title">Assistant</h2>
+        {/* One button folds and unfolds the panel. Its name stays the same;
+            aria-expanded says which way it is. The chevron points the way the
+            panel will move. */}
         <button
           type="button"
           className="icon-button chat-toggle"
@@ -59,32 +62,33 @@ export function Chat({ folded, onToggle }: ChatProps) {
           </svg>
         </button>
       </div>
+      {/* Hidden, not removed, so the conversation is kept while folded. */}
       <div className="chat-body" id="chat-body" hidden={folded}>
-      <ul className="chat-messages">
-        {messages.length === 0 ? <li className="chat-empty">No messages yet</li> : null}
-        {messages.map((m, i) => (
-          <li key={i} className={`chat-message ${m.from}`}>
-            {m.text}
-          </li>
-        ))}
-        <li ref={endRef} aria-hidden="true" />
-      </ul>
-      {error ? (
-        <p className="status error" role="alert">
-          The assistant did not reply. Try again.
-        </p>
-      ) : null}
-      <form className="chat-form" onSubmit={handleSubmit}>
-        <input
-          aria-label="Message"
-          placeholder="Message"
-          value={message}
-          onChange={(event) => setMessage(event.target.value)}
-        />
-        <button type="submit" disabled={sending}>
-          {sending ? 'Sending…' : 'Send'}
-        </button>
-      </form>
+        <ul className="chat-messages">
+          {messages.length === 0 ? <li className="chat-empty">No messages yet</li> : null}
+          {messages.map((m, i) => (
+            <li key={i} className={`chat-message ${m.from}`}>
+              {m.text}
+            </li>
+          ))}
+          <li ref={endRef} aria-hidden="true" />
+        </ul>
+        {error ? (
+          <p className="status error" role="alert">
+            The assistant did not reply. Try again.
+          </p>
+        ) : null}
+        <form className="chat-form" onSubmit={handleSubmit}>
+          <input
+            aria-label="Message"
+            placeholder="Message"
+            value={message}
+            onChange={(event) => setMessage(event.target.value)}
+          />
+          <button type="submit" disabled={sending}>
+            {sending ? 'Sending…' : 'Send'}
+          </button>
+        </form>
       </div>
     </section>
   )
