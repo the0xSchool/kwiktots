@@ -37,7 +37,7 @@ describe('App', () => {
 
     render(<App />)
 
-    const items = await screen.findAllByRole('listitem')
+    const items = await within(screen.getByRole('region', { name: 'Notes' })).findAllByRole('listitem')
     expect(items).toHaveLength(2)
     expect(within(items[0]).getByText('Groceries')).toBeInTheDocument()
     expect(within(items[0]).getByText(/Milk, eggs, bread/)).toBeInTheDocument()
@@ -116,7 +116,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await user.click(await screen.findByText('Groceries'))
+    await user.click(await screen.findByRole('button', { name: /edit note/i }))
 
     const titleField = await screen.findByLabelText(/title/i)
     expect(titleField).toHaveValue('Groceries')
@@ -207,7 +207,7 @@ describe('App', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     render(<App />)
-    await user.click(await screen.findByText('Groceries'))
+    await user.click(await screen.findByRole('button', { name: /edit note/i }))
 
     const titleField = await screen.findByLabelText(/title/i)
     await user.clear(titleField)

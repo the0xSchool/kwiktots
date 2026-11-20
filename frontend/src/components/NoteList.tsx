@@ -24,23 +24,46 @@ export function NoteList({ notes, onEdit, onDelete }: NoteListProps) {
     <ul className="note-list">
       {notes.map((note) => (
         <li key={note.id}>
-          <button
-            type="button"
-            className="note-summary"
-            onClick={() => onEdit(note.id)}
-          >
+          <div className="note-summary">
             <span className="note-summary-title">{note.title}</span>
-            <span className="note-summary-preview">{preview(note.body)}</span>
+            {preview(note.body) ? (
+              <span className="note-summary-preview">{preview(note.body)}</span>
+            ) : null}
             <span className="note-summary-updated">
               Updated {relativeTime(note.updated_at)}
             </span>
-          </button>
-          <button type="button" aria-label="Edit note" onClick={() => onEdit(note.id)}>
-            ✎
-          </button>
-          <button type="button" aria-label="Delete note" onClick={() => onDelete(note)}>
-            🗑
-          </button>
+          </div>
+          <div className="note-actions">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label={`Edit note "${note.title}"`}
+              title="Edit"
+              onClick={() => onEdit(note.id)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 20h4L19 9l-4-4L4 16v4z" />
+                <path d="M13.5 6.5l4 4" />
+              </svg>
+            </button>
+            <button
+              type="button"
+              className="icon-button danger"
+              aria-label={`Delete note "${note.title}"`}
+              title="Delete"
+              onClick={() => onDelete(note)}
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M4 7h16" />
+                <path d="M9 7V4h6v3" />
+                <path d="M6 7l1 13h10l1-13" />
+                <path d="M10 11v6" />
+                <path d="M14 11v6" />
+              </svg>
+            </button>
+          </div>
         </li>
       ))}
     </ul>

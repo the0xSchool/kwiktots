@@ -76,11 +76,11 @@ export function NoteEditor({
       </div>
 
       <div className="editor-actions">
+        <button type="button" className="secondary" onClick={onCancel}>
+          Cancel
+        </button>
         <button type="submit" disabled={isSaving}>
           {isSaving ? 'Saving…' : 'Save'}
-        </button>
-        <button type="button" onClick={onCancel}>
-          Cancel
         </button>
       </div>
     </form>
