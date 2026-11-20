@@ -19,6 +19,15 @@ const NOTE_B = {
   updated_at: '2026-01-01T00:00:00Z',
 }
 
+// Note titles show in the list and in the open note, so look in the list.
+function inList() {
+  return within(screen.getByRole('region', { name: 'Notes' }))
+}
+
+function inOpenNote() {
+  return within(screen.getByRole('region', { name: 'Open note' }))
+}
+
 function jsonResponse(body: unknown, status = 200) {
   return new Response(body === undefined ? null : JSON.stringify(body), {
     status,
@@ -106,7 +115,7 @@ describe('App', () => {
         expect.objectContaining({ method: 'POST' }),
       )
     })
-    expect(await screen.findByText('Groceries')).toBeInTheDocument()
+    expect(await inList().findByText('Groceries')).toBeInTheDocument()
   })
 
   it('edits a note', async () => {
@@ -134,7 +143,7 @@ describe('App', () => {
         expect.objectContaining({ method: 'PUT' }),
       )
     })
-    expect(await screen.findByText('Groceries v2')).toBeInTheDocument()
+    expect(await inList().findByText('Groceries v2')).toBeInTheDocument()
   })
 
   it('deletes a note after confirming', async () => {
@@ -145,7 +154,7 @@ describe('App', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<App />)
-    await screen.findByText('Groceries')
+    await inList().findByText('Groceries')
 
     fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
     fetchMock.mockResolvedValueOnce(jsonResponse([]))
@@ -170,7 +179,7 @@ describe('App', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(false)
 
     render(<App />)
-    await screen.findByText('Groceries')
+    await inList().findByText('Groceries')
     await user.click(screen.getByRole('button', { name: /delete note/i }))
 
     expect(window.confirm).toHaveBeenCalled()
@@ -236,7 +245,7 @@ describe('App', () => {
     vi.spyOn(window, 'confirm').mockReturnValue(true)
 
     render(<App />)
-    await screen.findByText('Groceries')
+    await inList().findByText('Groceries')
 
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ detail: 'Note not found' }, 404),
@@ -248,5 +257,67 @@ describe('App', () => {
       /no longer exists/i,
     )
     expect(screen.queryByText('Groceries')).not.toBeInTheDocument()
+  })
+
+  it('shows the newest note in the middle, and switches when another title is clicked', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([NOTE_A, NOTE_B])))
+
+    render(<App />)
+    await inList().findByText('Groceries')
+    expect(inOpenNote().getByRole('heading', { name: 'Groceries' })).toBeInTheDocument()
+    expect(inOpenNote().getByText('Milk, eggs, bread')).toBeInTheDocument()
+    expect(inList().getByRole('button', { name: 'Groceries' })).toHaveAttribute('aria-current', 'true')
+
+    await user.click(inList().getByRole('button', { name: 'Trip plan' }))
+    expect(inOpenNote().getByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
+    expect(inOpenNote().getByText('Book flights')).toBeInTheDocument()
+    expect(inList().getByRole('button', { name: 'Trip plan' })).toHaveAttribute('aria-current', 'true')
+    expect(inList().getByRole('button', { name: 'Groceries' })).not.toHaveAttribute('aria-current')
+  })
+
+  it('returns to the open note when the edit dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse([NOTE_A, NOTE_B])))
+
+    render(<App />)
+    await user.click(await inList().findByRole('button', { name: 'Trip plan' }))
+    await user.click(screen.getByRole('button', { name: /edit note/i }))
+    expect(screen.getByLabelText(/title/i)).toHaveValue('Trip plan')
+
+    await user.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(inOpenNote().getByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
+  })
+
+  it('shows the next note down after deleting the open note', async () => {
+    const user = userEvent.setup()
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([NOTE_A, NOTE_B]))
+    vi.stubGlobal('fetch', fetchMock)
+    vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    render(<App />)
+    await inList().findByText('Groceries')
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }))
+    await user.click(screen.getByRole('button', { name: /delete note/i }))
+
+    expect(await inOpenNote().findByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
+    expect(inList().queryByText('Groceries')).not.toBeInTheDocument()
+  })
+
+  it('shows a new note in the middle once it is saved', async () => {
+    const user = userEvent.setup()
+    const created = { ...NOTE_B, updated_at: '2026-01-03T00:00:00Z' }
+    const fetchMock = vi.fn().mockResolvedValueOnce(jsonResponse([NOTE_A]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    render(<App />)
+    await inList().findByText('Groceries')
+    fetchMock.mockResolvedValueOnce(jsonResponse(created, 201))
+    await user.click(screen.getByRole('button', { name: /new note/i }))
+    await user.type(screen.getByLabelText(/title/i), 'Trip plan')
+    await user.click(screen.getByRole('button', { name: /save/i }))
+
+    expect(await inOpenNote().findByRole('heading', { name: 'Trip plan' })).toBeInTheDocument()
   })
 })

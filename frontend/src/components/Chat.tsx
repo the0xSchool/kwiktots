@@ -6,7 +6,12 @@ interface Message {
   text: string
 }
 
-export function Chat() {
+interface ChatProps {
+  folded: boolean
+  onToggle: () => void
+}
+
+export function Chat({ folded, onToggle }: ChatProps) {
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<Message[]>([])
   const [sending, setSending] = useState(false)
@@ -37,7 +42,24 @@ export function Chat() {
 
   return (
     <section className="chat-pane" aria-labelledby="chat-title">
-      <h2 id="chat-title">Assistant</h2>
+      <div className="chat-header">
+        <h2 id="chat-title">Assistant</h2>
+        <button
+          type="button"
+          className="icon-button chat-toggle"
+          aria-label="Assistant panel"
+          aria-controls="chat-body"
+          aria-expanded={!folded}
+          title={folded ? 'Show assistant' : 'Hide assistant'}
+          onClick={onToggle}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d={folded ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'} />
+          </svg>
+        </button>
+      </div>
+      <div className="chat-body" id="chat-body" hidden={folded}>
       <ul className="chat-messages">
         {messages.length === 0 ? <li className="chat-empty">No messages yet</li> : null}
         {messages.map((m, i) => (
@@ -63,6 +85,7 @@ export function Chat() {
           {sending ? 'Sending…' : 'Send'}
         </button>
       </form>
+      </div>
     </section>
   )
 }

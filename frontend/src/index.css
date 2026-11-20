@@ -97,7 +97,7 @@ button:disabled {
 }
 
 .app-header,
-.chat-pane h2 {
+.chat-header {
   /* Both top bars are the same height so their bottom lines join up. */
   min-height: 4rem;
   margin: 0;
@@ -117,13 +117,22 @@ button:disabled {
   margin: 0;
 }
 
+/* The list card and the open-note card, side by side under the header. */
+.notes-body {
+  display: grid;
+  grid-template-columns: minmax(14rem, 1fr) minmax(0, 2fr);
+  gap: var(--space-6);
+  align-items: start;
+  margin: var(--space-6);
+}
+
 /* ---------- Notes list ---------- */
 
 .list-pane {
-  margin: var(--space-6);
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius);
+  overflow: hidden; /* keeps the row tints inside the rounded corners */
 }
 
 .list-pane > p {
@@ -137,9 +146,10 @@ button:disabled {
 }
 
 .note-list li {
+  position: relative; /* the title button's click area fills the row */
   display: flex;
-  align-items: center;
-  gap: var(--space-4);
+  flex-direction: column;
+  gap: var(--space-1);
   padding: var(--space-3) var(--space-4);
 }
 
@@ -147,16 +157,42 @@ button:disabled {
   border-top: 1px solid var(--color-border);
 }
 
-.note-summary {
-  flex: 1;
-  min-width: 0; /* lets the preview shrink and show its ellipsis */
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
+.note-list li:hover {
+  background: var(--color-bg);
 }
 
-.note-summary-title {
+/* The note open beside the list: tinted, with an accent bar down its left edge. */
+.note-list li.is-current {
+  background: var(--color-bg);
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+/* The note title is a button that opens the note. Its ::after stretches over
+   the whole row, so a click anywhere on the row opens it too. */
+button.note-open {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
   font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+button.note-open::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* Draw the keyboard focus ring round the whole row, not just the title. */
+button.note-open:focus-visible {
+  outline: none;
+}
+
+button.note-open:focus-visible::after {
+  outline: 3px solid var(--color-accent);
+  outline-offset: -3px;
 }
 
 .note-summary-preview {
@@ -172,9 +208,64 @@ button:disabled {
   font-size: 0.8rem;
 }
 
-.note-actions {
+/* ---------- Open note (middle card) ---------- */
+
+.note-pane {
+  min-width: 0;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: var(--space-6);
+  /* Fill the screen below the top bar. */
+  min-height: calc(100vh - 4rem - 2 * var(--space-6));
+}
+
+.page-error {
+  margin: var(--space-6) var(--space-6) 0;
+}
+
+/* Back (phones), then Edit, Delete and Close on the right. */
+.note-bar {
   display: flex;
-  gap: var(--space-1);
+  align-items: center;
+  gap: var(--space-2);
+  /* Pull the quiet buttons into the card's corner so they line up with its padding. */
+  margin: calc(-1 * var(--space-2)) calc(-1 * var(--space-2)) var(--space-2) 0;
+}
+
+.note-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+/* Back is only needed on phones; see the narrow-screen block at the end. */
+.back-button {
+  display: none;
+}
+
+.note-view {
+  /* A comfortable reading width: about 65 characters a line. */
+  max-width: 36rem;
+}
+
+.note-view h2 {
+  margin: 0 0 var(--space-1);
+  font-size: 1.25rem;
+  overflow-wrap: anywhere;
+}
+
+.note-view-updated {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+}
+
+.note-view-body {
+  margin: 0;
+  white-space: pre-wrap; /* keep the line breaks the person typed */
+  overflow-wrap: anywhere;
 }
 
 /* A quiet square button that holds one icon. */
@@ -296,9 +387,22 @@ dialog .status.error {
   border-left: 1px solid var(--color-border);
 }
 
-.chat-pane h2 {
+.chat-header {
+  justify-content: space-between;
+  gap: var(--space-2);
   padding: 0 var(--space-4);
+}
+
+.chat-header h2 {
+  margin: 0;
   font-size: 1.1rem;
+}
+
+.chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .chat-messages {
@@ -354,10 +458,42 @@ dialog .status.error {
   margin: 0 var(--space-4) var(--space-4);
 }
 
-/* ---------- Narrow screens: one column, assistant below the notes ---------- */
+/* ---------- Giving way: fold the Assistant, or close the note ---------- */
 
-@media (max-width: 48rem) {
-  .app {
+/* Assistant folded to a strip: the notes area, and so the note card, take its space. */
+.app.wide-note {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.app.wide-note .chat-header {
+  padding: 0 var(--space-1);
+}
+
+.app.wide-note .chat-header h2 {
+  display: none;
+}
+
+.chat-body[hidden] {
+  display: none;
+}
+
+/* Note closed completely: the list card takes the whole notes area. Opening a
+   note from the list brings the card back. */
+.app.wide-list .notes-body {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.app.wide-list .note-pane {
+  display: none;
+}
+
+/* ---------- Narrow screens: one screen at a time ---------- */
+
+/* Keep 60rem in step with PHONE_QUERY in App.tsx. Below it, two cards beside the
+   Assistant leave the open note under 400px of text, so show one screen at a time. */
+@media (max-width: 60rem) {
+  .app,
+  .app.wide-note {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -365,8 +501,55 @@ dialog .status.error {
     padding: 0 var(--space-4);
   }
 
-  .list-pane {
+  .notes-body {
+    grid-template-columns: minmax(0, 1fr);
     margin: var(--space-4);
+  }
+
+  .page-error {
+    margin: var(--space-4) var(--space-4) 0;
+  }
+
+  /* The list screen, or the open-note screen with a Back button. */
+  .app.show-note .list-pane,
+  .app:not(.show-note) .note-pane {
+    display: none;
+  }
+
+  .note-pane {
+    padding: var(--space-4);
+    /* Most of the screen, leaving the Assistant's bar in view as a hint below. */
+    min-height: 70vh;
+  }
+
+  /* On a phone, Back does the closing. (button. outranks button.icon-button.) */
+  button.note-close {
+    display: none;
+  }
+
+  .back-button {
+    display: inline-flex;
+  }
+
+  /* The Assistant folds to its title bar, held on the bottom edge of the screen. */
+  .app.wide-note .chat-pane {
+    position: sticky;
+    bottom: 0;
+    align-self: end;
+    height: auto;
+  }
+
+  .app.wide-note .chat-header {
+    padding: 0 var(--space-4);
+  }
+
+  .app.wide-note .chat-header h2 {
+    display: block;
+  }
+
+  /* The chevron points the way the panel will move: down to fold it, up to open it. */
+  .chat-toggle svg {
+    transform: rotate(90deg);
   }
 
   .chat-pane {
