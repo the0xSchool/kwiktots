@@ -53,7 +53,10 @@ function App() {
   useEffect(() => {
     const dialog = dialogRef.current
     if (!dialog) return
-    if (selectedId !== undefined && !dialog.open) dialog.showModal()
+    if (selectedId !== undefined && !dialog.open) {
+      dialog.showModal()
+      titleInputRef.current?.focus()
+    }
     if (selectedId === undefined && dialog.open) dialog.close()
   }, [selectedId])
 
@@ -189,14 +192,14 @@ function App() {
 
   return (
     <div className="app">
-      <header className="app-header">
-        <h1>Kwiktots</h1>
-        <button type="button" ref={newNoteButtonRef} onClick={openNewNote}>
-          New note
-        </button>
-      </header>
+      <main>
+        <header className="app-header">
+          <h1>Kwiktots</h1>
+          <button type="button" ref={newNoteButtonRef} onClick={openNewNote}>
+            New note
+          </button>
+        </header>
 
-      <div className="app-body">
         <section className="list-pane" aria-label="Notes">
           {formError && !isEditorOpen ? (
             <p className="status error" role="alert">
@@ -213,30 +216,30 @@ function App() {
             <NoteList notes={notes} onEdit={selectNote} onDelete={handleDelete} />
           ) : null}
         </section>
+      </main>
 
-        <dialog ref={dialogRef} onCancel={closeEditor}>
-          <h2>{isNew ? 'New note' : 'Edit note'}</h2>
-          {formError ? (
-            <p className="status error" role="alert">
-              {formError}
-            </p>
-          ) : null}
-          {isEditorOpen ? (
-            <NoteEditor
-              key={selectedId}
-              initialTitle={isNew ? (draft?.title ?? '') : (selectedNote?.title ?? '')}
-              initialBody={isNew ? (draft?.body ?? '') : (selectedNote?.body ?? '')}
-              isSaving={isSaving}
-              fieldErrors={fieldErrors}
-              titleInputRef={titleInputRef}
-              onSave={handleSave}
-              onCancel={closeEditor}
-            />
-          ) : null}
-        </dialog>
+      <dialog ref={dialogRef} onCancel={closeEditor} aria-labelledby="note-dialog-title">
+        <h2 id="note-dialog-title">{isNew ? 'New note' : 'Edit note'}</h2>
+        {formError ? (
+          <p className="status error" role="alert">
+            {formError}
+          </p>
+        ) : null}
+        {isEditorOpen ? (
+          <NoteEditor
+            key={selectedId}
+            initialTitle={isNew ? (draft?.title ?? '') : (selectedNote?.title ?? '')}
+            initialBody={isNew ? (draft?.body ?? '') : (selectedNote?.body ?? '')}
+            isSaving={isSaving}
+            fieldErrors={fieldErrors}
+            titleInputRef={titleInputRef}
+            onSave={handleSave}
+            onCancel={closeEditor}
+          />
+        ) : null}
+      </dialog>
 
-        <Chat />
-      </div>
+      <Chat />
     </div>
   )
 }
