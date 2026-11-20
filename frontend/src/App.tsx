@@ -1,24 +1,37 @@
 import { useEffect, useRef, useState } from 'react'
-import {
-  ApiError,
-  createNote,
-  deleteNote,
-  listNotes,
-  updateNote,
-  type Note,
-} from './api'
-import { Chat } from './components/Chat'
-import { NoteEditor, type FieldErrors } from './components/NoteEditor'
+import { flushSync } from 'react-dom'
+import { ApiError, createNote, deleteNote, listNotes, updateNote, type Note } from './api'
+import { Chat, type SheetStop } from './components/Chat'
+import { NoteEditor, type NoteBanner, type NoteFields } from './components/NoteEditor'
 import { NoteList } from './components/NoteList'
-import { fieldErrorsFor, messageFor } from './errorMessage'
+import { messageFor } from './errorMessage'
+import { relativeTime } from './relativeTime'
 
+// shownId while a new note has no title yet, so nothing has been created.
 const NEW_NOTE = 'new'
 const NOTE_GONE_MESSAGE =
   'That note no longer exists, perhaps because the server restarted.'
-const NOTE_GONE_KEEP_DRAFT_MESSAGE =
-  'That note no longer exists, perhaps because the server restarted. Your text is kept as a new note. Press Save to create it.'
+const NOTE_GONE_KEPT_MESSAGE =
+  'That note no longer exists, perhaps because the server restarted. Your text is kept as a new note.'
+// Changes save themselves this long after the last keystroke.
+const SAVE_DELAY_MS = 500
+// Matches the narrow-screen breakpoint in index.css (60rem).
+const PHONE_QUERY = '(max-width: 60rem)'
+// Remembers which pane gave way, across reloads.
+const WIDE_KEY = 'kwiktots.wide'
 
-type PendingFocus = 'title' | 'new-note-button' | null
+// The Assistant (folded or not) and the note pane (closed or not) are independent,
+// so both can be closed at once and the list then fills the space. They are stored
+// together as 'none', 'note' (Assistant folded), 'list' (note closed) or 'both'.
+interface Panes {
+  assistantFolded: boolean
+  noteClosed: boolean
+}
+
+// The note being edited. It has no id until a new note is first saved.
+interface EditSession {
+  id: string | undefined
+}
 
 function sortByUpdatedDesc(notes: Note[]): Note[] {
   return [...notes].sort((a, b) => (a.updated_at < b.updated_at ? 1 : -1))
@@ -28,47 +41,68 @@ function isNotFound(error: unknown): boolean {
   return error instanceof ApiError && error.status === 404
 }
 
+// True when the screen shows one pane at a time (the list, or the open note).
+function isPhone(): boolean {
+  // The tests run in jsdom, which has no matchMedia; treat that as a wide screen.
+  return window.matchMedia?.(PHONE_QUERY).matches ?? false
+}
+
+function loadPanes(): Panes {
+  try {
+    const saved = localStorage.getItem(WIDE_KEY)
+    return {
+      assistantFolded: saved === 'note' || saved === 'both',
+      noteClosed: saved === 'list' || saved === 'both',
+    }
+  } catch {
+    // Storage blocked: start with everything open.
+    return { assistantFolded: false, noteClosed: false }
+  }
+}
+
+function savePanes({ assistantFolded, noteClosed }: Panes) {
+  const value = assistantFolded
+    ? noteClosed ? 'both' : 'note'
+    : noteClosed ? 'list' : 'none'
+  try {
+    localStorage.setItem(WIDE_KEY, value)
+  } catch {
+    // Storage blocked: remember it for this page only.
+  }
+}
+
 function App() {
   const [notes, setNotes] = useState<Note[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | undefined>(undefined)
-  const [selectedId, setSelectedId] = useState<string | undefined>(undefined)
-  const [savingId, setSavingId] = useState<string | undefined>(undefined)
-  const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
-  const [formError, setFormError] = useState<string | undefined>(undefined)
-  const [draft, setDraft] = useState<{ title: string; body: string } | undefined>(
-    undefined,
-  )
+  // A failed delete, shown at the top of the list.
+  const [listError, setListError] = useState<string | undefined>(undefined)
+  // The note in the middle: a note id, NEW_NOTE, or undefined when there is none.
+  const [shownId, setShownId] = useState<string | undefined>(undefined)
+  // What is in the open note's title and body fields.
+  const [fields, setFields] = useState<NoteFields>({ title: '', body: '' })
+  const [saving, setSaving] = useState(false)
+  // A failed save, or a note that vanished, shown above the open note.
+  const [banner, setBanner] = useState<NoteBanner | undefined>(undefined)
+  // On a phone: false shows the list, true shows the open note.
+  const [onNoteScreen, setOnNoteScreen] = useState(false)
+  const [sheetFull, setSheetFull] = useState(false)
+  const [panes, setPanes] = useState<Panes>(loadPanes)
 
-  const selectedIdRef = useRef<string | undefined>(selectedId)
-  const pendingFocus = useRef<PendingFocus>(null)
-  const titleInputRef = useRef<HTMLInputElement>(null)
   const newNoteButtonRef = useRef<HTMLButtonElement>(null)
-  const dialogRef = useRef<HTMLDialogElement>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
+  const backButtonRef = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    selectedIdRef.current = selectedId
-  }, [selectedId])
-
-  useEffect(() => {
-    const dialog = dialogRef.current
-    if (!dialog) return
-    if (selectedId !== undefined && !dialog.open) {
-      dialog.showModal()
-      titleInputRef.current?.focus()
-    }
-    if (selectedId === undefined && dialog.open) dialog.close()
-  }, [selectedId])
-
-  useEffect(() => {
-    if (pendingFocus.current === 'title' && selectedId !== undefined) {
-      titleInputRef.current?.focus()
-      pendingFocus.current = null
-    } else if (pendingFocus.current === 'new-note-button' && selectedId === undefined) {
-      newNoteButtonRef.current?.focus()
-      pendingFocus.current = null
-    }
-  }, [selectedId])
+  // Autosave bookkeeping. These are refs because the save timer and the save
+  // requests finish after the render that started them.
+  const fieldsRef = useRef(fields)
+  const session = useRef<EditSession>({ id: undefined })
+  const saveTimer = useRef<number | undefined>(undefined)
+  // Saves run one after another, so a new note is created once, then updated.
+  const saveQueue = useRef<Promise<void>>(Promise.resolve())
+  const savesWaiting = useRef(0)
+  // Notes deleted here, so a late save does not bring one back.
+  const deletedIds = useRef(new Set<string>())
 
   useEffect(() => {
     let cancelled = false
@@ -76,8 +110,11 @@ function App() {
     listNotes()
       .then((loaded) => {
         if (cancelled) return
-        setNotes(sortByUpdatedDesc(loaded))
+        const sorted = sortByUpdatedDesc(loaded)
+        setNotes(sorted)
         setLoadError(undefined)
+        // Open the newest note.
+        if (sorted[0]) editNote(sorted[0])
       })
       .catch((error: unknown) => {
         if (cancelled) return
@@ -89,110 +126,213 @@ function App() {
     return () => {
       cancelled = true
     }
+    // editNote only uses refs and state setters, so the first one is fine.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  const selectedNote = notes.find((note) => note.id === selectedId)
-  const isEditorOpen = selectedId !== undefined
-  const isNew = selectedId === NEW_NOTE
-  const isSaving = savingId !== undefined && savingId === selectedId
+  const shownNote = notes.find((note) => note.id === shownId)
+  const isNew = shownId === NEW_NOTE
 
-  function openNewNote() {
-    setSelectedId(NEW_NOTE)
-    setDraft(undefined)
-    setFieldErrors({})
-    setFormError(undefined)
+  // ---------- Saving ----------
+
+  // Send what is in the fields now, after any save already on its way.
+  function queueSave() {
+    window.clearTimeout(saveTimer.current)
+    saveTimer.current = undefined
+    const { title, body } = fieldsRef.current
+    if (!title.trim()) return
+    const target = session.current
+    savesWaiting.current += 1
+    setSaving(true)
+    saveQueue.current = saveQueue.current
+      .then(() => sendSave(target, title, body))
+      .finally(() => {
+        savesWaiting.current -= 1
+        if (savesWaiting.current === 0) setSaving(false)
+      })
   }
 
-  function selectNote(id: string) {
-    setSelectedId(id)
-    setDraft(undefined)
-    setFieldErrors({})
-    setFormError(undefined)
-  }
-
-  function closeEditor() {
-    setSelectedId(undefined)
-    setDraft(undefined)
-    setFieldErrors({})
-    setFormError(undefined)
-  }
-
-  function closeEditorAsGone(targetId: string) {
-    setNotes((current) => current.filter((note) => note.id !== targetId))
-    setFormError(NOTE_GONE_MESSAGE)
-  }
-
-  async function handleSave(title: string, body: string) {
-    const targetId = selectedId
-    if (targetId === undefined) return
-    const targetIsNew = targetId === NEW_NOTE
-    const existingNote = targetIsNew
-      ? undefined
-      : notes.find((note) => note.id === targetId)
-
-    setSavingId(targetId)
-    setFieldErrors({})
-    setFormError(undefined)
-
+  async function sendSave(target: EditSession, title: string, body: string): Promise<void> {
+    if (target.id !== undefined && deletedIds.current.has(target.id)) return
+    const isCurrent = target === session.current
     try {
-      if (targetIsNew) {
-        const created = await createNote({ title, body })
-        setNotes((current) => sortByUpdatedDesc([...current, created]))
-        if (selectedIdRef.current === targetId) closeEditor()
-      } else if (existingNote) {
-        const updated = await updateNote(existingNote.id, { title, body })
-        setNotes((current) =>
-          sortByUpdatedDesc(
-            current.map((note) => (note.id === updated.id ? updated : note)),
-          ),
-        )
-        if (selectedIdRef.current === targetId) closeEditor()
+      const saved =
+        target.id === undefined
+          ? await createNote({ title, body })
+          : await updateNote(target.id, { title, body })
+      target.id = saved.id
+      // Saving moves the note to the top of the list; a new note appears there.
+      setNotes((current) =>
+        sortByUpdatedDesc([saved, ...current.filter((note) => note.id !== saved.id)]),
+      )
+      if (target === session.current) {
+        setShownId(saved.id)
+        setBanner((current) => (current?.retry ? undefined : current))
       }
     } catch (error) {
-      if (!targetIsNew && isNotFound(error)) {
-        setNotes((current) => current.filter((note) => note.id !== targetId))
-        if (selectedIdRef.current === targetId) {
-          setDraft({ title, body })
-          setFieldErrors({})
-          setFormError(NOTE_GONE_KEEP_DRAFT_MESSAGE)
-          pendingFocus.current = 'title'
-          setSelectedId(NEW_NOTE)
-        }
+      if (target.id !== undefined && isNotFound(error)) {
+        if (deletedIds.current.has(target.id)) return
+        // The note is gone from the server: keep the text by saving it as a new note.
+        const goneId = target.id
+        target.id = undefined
+        setNotes((current) => current.filter((note) => note.id !== goneId))
+        if (isCurrent) setBanner({ text: NOTE_GONE_KEPT_MESSAGE, retry: false })
+        await sendSave(target, title, body)
         return
       }
-      if (selectedIdRef.current === targetId) {
-        if (error instanceof ApiError && error.status === 422) {
-          setFieldErrors(fieldErrorsFor(error))
-        }
-        setFormError(messageFor(error))
+      if (target === session.current) {
+        setBanner({ text: `Not saved: ${messageFor(error)}`, retry: true })
       }
-    } finally {
-      setSavingId((current) => (current === targetId ? undefined : current))
     }
+  }
+
+  function handleFieldsChange(next: NoteFields) {
+    setFields(next)
+    fieldsRef.current = next
+    window.clearTimeout(saveTimer.current)
+    saveTimer.current = undefined
+    // A note cannot be saved without a title (the server requires one).
+    if (next.title.trim()) {
+      setSaving(true)
+      saveTimer.current = window.setTimeout(queueSave, SAVE_DELAY_MS)
+    } else if (savesWaiting.current === 0) {
+      setSaving(false)
+    }
+  }
+
+  // ---------- Moving between notes ----------
+
+  // Put a note in the editor, or an empty new note (null). Saves what is pending first.
+  function editNote(note: Note | null) {
+    if (saveTimer.current !== undefined) queueSave()
+    session.current = { id: note?.id }
+    const next = { title: note?.title ?? '', body: note?.body ?? '' }
+    setFields(next)
+    fieldsRef.current = next
+    setShownId(note ? note.id : NEW_NOTE)
+    setBanner(undefined)
+  }
+
+  // Folded is remembered across reloads. Full screen (phones) is not.
+  function changeSheetStop(stop: SheetStop) {
+    setSheetFull(stop === 'full')
+    const folded = stop === 'folded'
+    if (folded !== panes.assistantFolded) changePanes({ assistantFolded: folded })
+  }
+
+  function changePanes(change: Partial<Panes>) {
+    const next = { ...panes, ...change }
+    setPanes(next)
+    savePanes(next)
+  }
+
+  function showNote(id: string) {
+    const note = notes.find((n) => n.id === id)
+    if (!note) return
+    setListError(undefined)
+    // Opening a note from the list brings a closed note pane back.
+    if (panes.noteClosed) changePanes({ noteClosed: false })
+    if (!isPhone()) {
+      if (id !== shownId) editNote(note)
+      return
+    }
+    // On a phone the list is about to hide, so apply the change now and then
+    // move focus to the top of the note screen.
+    flushSync(() => {
+      if (id !== shownId) editNote(note)
+      setOnNoteScreen(true)
+    })
+    backButtonRef.current?.focus()
+  }
+
+  function openNewNote() {
+    if (panes.noteClosed) changePanes({ noteClosed: false })
+    // Render the empty note first, so the Title field exists to take focus.
+    flushSync(() => {
+      editNote(null)
+      if (isPhone()) setOnNoteScreen(true)
+    })
+    titleInputRef.current?.focus()
+  }
+
+  // Back to the list (phones). Focus goes to the given note's row, or to New note.
+  function showList(focusId: string | undefined) {
+    if (saveTimer.current !== undefined) queueSave()
+    flushSync(() => setOnNoteScreen(false))
+    const row = focusId ? document.getElementById(`note-row-${focusId}`) : null
+    if (row) row.focus()
+    else newNoteButtonRef.current?.focus()
+  }
+
+  // The ✕: close the note pane completely; the list takes its space.
+  function closeNote() {
+    if (saveTimer.current !== undefined) queueSave()
+    flushSync(() => changePanes({ noteClosed: true }))
+    // The ✕ went with the pane, so focus the note's row: that is how it opens again.
+    const row = shownNote ? document.getElementById(`note-row-${shownNote.id}`) : null
+    if (row) row.focus()
+    else newNoteButtonRef.current?.focus()
   }
 
   async function handleDelete(note: Note) {
-    const targetId = note.id
-    const confirmed = window.confirm(
-      `Delete "${note.title}"? This cannot be undone.`,
-    )
+    const confirmed = window.confirm(`Delete "${note.title}"? This cannot be undone.`)
     if (!confirmed) return
 
+    // Afterwards, focus (and, if it was open, show) the next note down, or the one
+    // above if this was the last.
+    const index = notes.findIndex((n) => n.id === note.id)
+    const neighbour = notes[index + 1] ?? notes[index - 1]
+    const wasShown = note.id === shownId
+    let gone = false
+
+    deletedIds.current.add(note.id)
     try {
-      await deleteNote(targetId)
-      setNotes((current) => current.filter((note) => note.id !== targetId))
+      await deleteNote(note.id)
     } catch (error) {
-      if (isNotFound(error)) {
-        closeEditorAsGone(targetId)
+      if (!isNotFound(error)) {
+        deletedIds.current.delete(note.id)
+        setListError(messageFor(error))
         return
       }
-      setFormError(messageFor(error))
+      gone = true
     }
+
+    if (wasShown) {
+      // Drop any unsent change to the deleted note.
+      window.clearTimeout(saveTimer.current)
+      saveTimer.current = undefined
+    }
+    flushSync(() => {
+      setNotes((current) => current.filter((n) => n.id !== note.id))
+      setListError(gone ? NOTE_GONE_MESSAGE : undefined)
+      if (wasShown) {
+        if (neighbour) editNote(neighbour)
+        else setShownId(undefined)
+      }
+    })
+    // The bin went with its row.
+    const row = neighbour ? document.getElementById(`note-row-${neighbour.id}`) : null
+    if (row) row.focus()
+    else newNoteButtonRef.current?.focus()
   }
 
+  // ---------- What the open note says under its title ----------
+
+  let status = ''
+  if (!fields.title.trim()) status = 'Add a title to save'
+  else if (saving) status = 'Saving…'
+  else if (banner?.retry) status = '' // the red banner above says it
+  else if (shownNote) status = `Updated ${relativeTime(shownNote.updated_at)}`
+
+  let appClass = 'app'
+  if (onNoteScreen) appClass += ' show-note'
+  if (panes.assistantFolded) appClass += ' wide-note'
+  if (panes.noteClosed) appClass += ' wide-list'
+  if (sheetFull && !panes.assistantFolded) appClass += ' sheet-full'
+
   return (
-    <div className="app">
-      <main>
+    <div className={appClass}>
+      <main className="notes-area">
         <header className="app-header">
           <h1>Kwiktots</h1>
           <button type="button" ref={newNoteButtonRef} onClick={openNewNote}>
@@ -200,46 +340,50 @@ function App() {
           </button>
         </header>
 
-        <section className="list-pane" aria-label="Notes">
-          {formError && !isEditorOpen ? (
-            <p className="status error" role="alert">
-              {formError}
-            </p>
+        <div className="notes-body">
+          <section className="list-pane" aria-label="Notes">
+            {listError ? (
+              <p className="status error" role="alert">
+                {listError}
+              </p>
+            ) : null}
+            {loading ? <p className="status">Loading notes…</p> : null}
+            {loadError ? (
+              <p className="status error" role="alert">
+                {loadError}
+              </p>
+            ) : null}
+            {!loading && !loadError ? (
+              <NoteList
+                notes={notes}
+                // With the note pane closed, no row is the open note.
+                shownId={panes.noteClosed ? undefined : shownNote?.id}
+                onShow={showNote}
+                onDelete={handleDelete}
+              />
+            ) : null}
+          </section>
+
+          {isNew || shownNote ? (
+            <NoteEditor
+              fields={fields}
+              status={status}
+              banner={banner}
+              titleRef={titleInputRef}
+              backRef={backButtonRef}
+              onChange={handleFieldsChange}
+              onRetry={queueSave}
+              onClose={closeNote}
+              onBack={() => showList(shownNote?.id)}
+            />
           ) : null}
-          {loading ? <p className="status">Loading notes…</p> : null}
-          {loadError ? (
-            <p className="status error" role="alert">
-              {loadError}
-            </p>
-          ) : null}
-          {!loading && !loadError ? (
-            <NoteList notes={notes} onEdit={selectNote} onDelete={handleDelete} />
-          ) : null}
-        </section>
+        </div>
       </main>
 
-      <dialog ref={dialogRef} onCancel={closeEditor} aria-labelledby="note-dialog-title">
-        <h2 id="note-dialog-title">{isNew ? 'New note' : 'Edit note'}</h2>
-        {formError ? (
-          <p className="status error" role="alert">
-            {formError}
-          </p>
-        ) : null}
-        {isEditorOpen ? (
-          <NoteEditor
-            key={selectedId}
-            initialTitle={isNew ? (draft?.title ?? '') : (selectedNote?.title ?? '')}
-            initialBody={isNew ? (draft?.body ?? '') : (selectedNote?.body ?? '')}
-            isSaving={isSaving}
-            fieldErrors={fieldErrors}
-            titleInputRef={titleInputRef}
-            onSave={handleSave}
-            onCancel={closeEditor}
-          />
-        ) : null}
-      </dialog>
-
-      <Chat />
+      <Chat
+        stop={panes.assistantFolded ? 'folded' : sheetFull ? 'full' : 'default'}
+        onStop={changeSheetStop}
+      />
     </div>
   )
 }

@@ -1,88 +1,118 @@
-import { useEffect, useState } from 'react'
-import type { FormEvent, RefObject } from 'react'
+import { useRef } from 'react'
+import type { KeyboardEvent, RefObject } from 'react'
 
-export interface FieldErrors {
-  title?: string
-  body?: string
+// The server's limits (backend/app/models.py), so the fields cannot go over them.
+const TITLE_MAX_LENGTH = 200
+const BODY_MAX_LENGTH = 10_000
+
+export interface NoteFields {
+  title: string
+  body: string
+}
+
+// A message above the note. `retry` adds a Try again button (a failed save).
+export interface NoteBanner {
+  text: string
+  retry: boolean
 }
 
 interface NoteEditorProps {
-  initialTitle: string
-  initialBody: string
-  isSaving: boolean
-  fieldErrors: FieldErrors
-  titleInputRef?: RefObject<HTMLInputElement | null>
-  onSave: (title: string, body: string) => void
-  onCancel: () => void
+  fields: NoteFields
+  status: string
+  banner: NoteBanner | undefined
+  titleRef: RefObject<HTMLInputElement | null>
+  backRef: RefObject<HTMLButtonElement | null>
+  onChange: (fields: NoteFields) => void
+  onRetry: () => void
+  onClose: () => void
+  onBack: () => void
 }
 
+// The open note, edited in place: the top line is the title, the rest is the body.
 export function NoteEditor({
-  initialTitle,
-  initialBody,
-  isSaving,
-  fieldErrors,
-  titleInputRef,
-  onSave,
-  onCancel,
+  fields,
+  status,
+  banner,
+  titleRef,
+  backRef,
+  onChange,
+  onRetry,
+  onClose,
+  onBack,
 }: NoteEditorProps) {
-  const [title, setTitle] = useState(initialTitle)
-  const [body, setBody] = useState(initialBody)
+  const bodyRef = useRef<HTMLTextAreaElement>(null)
 
-  useEffect(() => {
-    setTitle(initialTitle)
-    setBody(initialBody)
-  }, [initialTitle, initialBody])
-
-  function handleSubmit(event: FormEvent) {
+  // Enter in the title moves to the start of the body, like the first line of a document.
+  function handleTitleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== 'Enter') return
     event.preventDefault()
-    onSave(title, body)
+    bodyRef.current?.focus()
+    bodyRef.current?.setSelectionRange(0, 0)
+  }
+
+  // Backspace at the very start of the body goes back up to the end of the title.
+  function handleBodyKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    const body = event.currentTarget
+    if (event.key !== 'Backspace' || body.selectionStart !== 0 || body.selectionEnd !== 0) return
+    event.preventDefault()
+    const end = fields.title.length
+    titleRef.current?.focus()
+    titleRef.current?.setSelectionRange(end, end)
   }
 
   return (
-    <form className="note-editor" onSubmit={handleSubmit}>
-      <div className="field">
-        <label htmlFor="note-title">Title</label>
+    <section className="note-pane" aria-label="Open note">
+      <button type="button" ref={backRef} className="secondary back-button" onClick={onBack}>
+        Back
+      </button>
+      {banner ? (
+        <p className="status error" role="alert">
+          {banner.text}{' '}
+          {banner.retry ? (
+            <button type="button" className="secondary" onClick={onRetry}>
+              Try again
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+      <div className="note-head">
         <input
-          id="note-title"
-          type="text"
-          ref={titleInputRef}
-          value={title}
-          onChange={(event) => setTitle(event.target.value)}
-          aria-invalid={Boolean(fieldErrors.title)}
-          aria-describedby={fieldErrors.title ? 'note-title-error' : undefined}
+          ref={titleRef}
+          className="note-title-input"
+          aria-label="Title"
+          placeholder="Title"
+          maxLength={TITLE_MAX_LENGTH}
+          autoComplete="off"
+          value={fields.title}
+          onChange={(event) => onChange({ title: event.target.value, body: fields.body })}
+          onKeyDown={handleTitleKeyDown}
         />
-        {fieldErrors.title ? (
-          <p className="field-error" id="note-title-error">
-            {fieldErrors.title}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="field">
-        <label htmlFor="note-body">Body</label>
-        <textarea
-          id="note-body"
-          value={body}
-          onChange={(event) => setBody(event.target.value)}
-          rows={12}
-          aria-invalid={Boolean(fieldErrors.body)}
-          aria-describedby={fieldErrors.body ? 'note-body-error' : undefined}
-        />
-        {fieldErrors.body ? (
-          <p className="field-error" id="note-body-error">
-            {fieldErrors.body}
-          </p>
-        ) : null}
-      </div>
-
-      <div className="editor-actions">
-        <button type="button" className="secondary" onClick={onCancel}>
-          Cancel
-        </button>
-        <button type="submit" disabled={isSaving}>
-          {isSaving ? 'Saving…' : 'Save'}
+        <button
+          type="button"
+          className="icon-button note-close"
+          aria-label="Close note"
+          title="Close note"
+          onClick={onClose}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+            strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
         </button>
       </div>
-    </form>
+      <p className="note-status" role="status">
+        {status}
+      </p>
+      <textarea
+        ref={bodyRef}
+        className="note-body-input"
+        aria-label="Body"
+        placeholder="Start writing"
+        maxLength={BODY_MAX_LENGTH}
+        value={fields.body}
+        onChange={(event) => onChange({ title: fields.title, body: event.target.value })}
+        onKeyDown={handleBodyKeyDown}
+      />
+    </section>
   )
 }
