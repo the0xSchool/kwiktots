@@ -75,6 +75,7 @@ export function Chat({ stop, onStop }: ChatProps) {
   // Drag the grab bar or the title bar. On release the sheet snaps to the nearest
   // stop, leaning towards where a quick flick was heading.
   function startDrag(event: PointerEvent<HTMLElement>) {
+    justDragged.current = false // a new press: any earlier drag is over
     if (!window.matchMedia?.(PHONE_QUERY).matches) return
     if (event.pointerType === 'mouse' && event.button !== 0) return
     if ((event.target as HTMLElement).closest('.chat-header button')) return
@@ -105,7 +106,9 @@ export function Chat({ stop, onStop }: ChatProps) {
     const state = drag.current
     drag.current = null
     if (!state || !state.moved) return
-    justDragged.current = true // the click that follows a drag is not a press
+    // A drag that began on the grab bar is followed by a click on it, which is not
+    // a press. A drag on the title bar never produces one.
+    justDragged.current = event.currentTarget.classList.contains('sheet-handle')
     const elapsed = Math.max(1, event.timeStamp - state.startTime)
     const velocity = (state.startY - event.clientY) / elapsed // px per ms, up is positive
     const aim = heightAt(state, event.clientY) + velocity * FLICK_MS
