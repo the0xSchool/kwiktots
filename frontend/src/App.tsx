@@ -20,10 +20,13 @@ const PHONE_QUERY = '(max-width: 60rem)'
 // Remembers which pane gave way, across reloads.
 const WIDE_KEY = 'kwiktots.wide'
 
-// Which side gives way: 'none' (all open), 'note' (the Assistant is folded, so the
-// note is wide) or 'list' (the note is closed, so the list is wide). One value, so
-// the note and the Assistant can never both be closed.
-type Wide = 'none' | 'note' | 'list'
+// The Assistant (folded or not) and the note pane (closed or not) are independent,
+// so both can be closed at once and the list then fills the space. They are stored
+// together as 'none', 'note' (Assistant folded), 'list' (note closed) or 'both'.
+interface Panes {
+  assistantFolded: boolean
+  noteClosed: boolean
+}
 
 // The note being edited. It has no id until a new note is first saved.
 interface EditSession {
@@ -44,14 +47,28 @@ function isPhone(): boolean {
   return window.matchMedia?.(PHONE_QUERY).matches ?? false
 }
 
-function loadWide(): Wide {
+function loadPanes(): Panes {
   try {
     const saved = localStorage.getItem(WIDE_KEY)
-    if (saved === 'note' || saved === 'list') return saved
+    return {
+      assistantFolded: saved === 'note' || saved === 'both',
+      noteClosed: saved === 'list' || saved === 'both',
+    }
   } catch {
     // Storage blocked: start with everything open.
+    return { assistantFolded: false, noteClosed: false }
   }
-  return 'none'
+}
+
+function savePanes({ assistantFolded, noteClosed }: Panes) {
+  const value = assistantFolded
+    ? noteClosed ? 'both' : 'note'
+    : noteClosed ? 'list' : 'none'
+  try {
+    localStorage.setItem(WIDE_KEY, value)
+  } catch {
+    // Storage blocked: remember it for this page only.
+  }
 }
 
 function App() {
@@ -69,7 +86,7 @@ function App() {
   const [banner, setBanner] = useState<NoteBanner | undefined>(undefined)
   // On a phone: false shows the list, true shows the open note.
   const [onNoteScreen, setOnNoteScreen] = useState(false)
-  const [wide, setWide] = useState<Wide>(loadWide)
+  const [panes, setPanes] = useState<Panes>(loadPanes)
 
   const newNoteButtonRef = useRef<HTMLButtonElement>(null)
   const titleInputRef = useRef<HTMLInputElement>(null)
@@ -195,13 +212,10 @@ function App() {
     setBanner(undefined)
   }
 
-  function changeWide(next: Wide) {
-    setWide(next)
-    try {
-      localStorage.setItem(WIDE_KEY, next)
-    } catch {
-      // Storage blocked: remember it for this page only.
-    }
+  function changePanes(change: Partial<Panes>) {
+    const next = { ...panes, ...change }
+    setPanes(next)
+    savePanes(next)
   }
 
   function showNote(id: string) {
@@ -209,7 +223,7 @@ function App() {
     if (!note) return
     setListError(undefined)
     // Opening a note from the list brings a closed note pane back.
-    if (wide === 'list') changeWide('none')
+    if (panes.noteClosed) changePanes({ noteClosed: false })
     if (!isPhone()) {
       if (id !== shownId) editNote(note)
       return
@@ -224,7 +238,7 @@ function App() {
   }
 
   function openNewNote() {
-    if (wide === 'list') changeWide('none')
+    if (panes.noteClosed) changePanes({ noteClosed: false })
     // Render the empty note first, so the Title field exists to take focus.
     flushSync(() => {
       editNote(null)
@@ -245,7 +259,7 @@ function App() {
   // The ✕: close the note pane completely; the list takes its space.
   function closeNote() {
     if (saveTimer.current !== undefined) queueSave()
-    flushSync(() => changeWide('list'))
+    flushSync(() => changePanes({ noteClosed: true }))
     // The ✕ went with the pane, so focus the note's row: that is how it opens again.
     const row = shownNote ? document.getElementById(`note-row-${shownNote.id}`) : null
     if (row) row.focus()
@@ -304,8 +318,8 @@ function App() {
 
   let appClass = 'app'
   if (onNoteScreen) appClass += ' show-note'
-  if (wide === 'note') appClass += ' wide-note'
-  if (wide === 'list') appClass += ' wide-list'
+  if (panes.assistantFolded) appClass += ' wide-note'
+  if (panes.noteClosed) appClass += ' wide-list'
 
   return (
     <div className={appClass}>
@@ -334,7 +348,7 @@ function App() {
               <NoteList
                 notes={notes}
                 // With the note pane closed, no row is the open note.
-                shownId={wide === 'list' ? undefined : shownNote?.id}
+                shownId={panes.noteClosed ? undefined : shownNote?.id}
                 onShow={showNote}
                 onDelete={handleDelete}
               />
@@ -358,8 +372,8 @@ function App() {
       </main>
 
       <Chat
-        folded={wide === 'note'}
-        onToggle={() => changeWide(wide === 'note' ? 'none' : 'note')}
+        folded={panes.assistantFolded}
+        onToggle={() => changePanes({ assistantFolded: !panes.assistantFolded })}
       />
     </div>
   )

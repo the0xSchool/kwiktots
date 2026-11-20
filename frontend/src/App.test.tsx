@@ -328,7 +328,7 @@ describe('App', () => {
     expect(screen.getByLabelText('Title')).toHaveValue('Trip plan')
   })
 
-  it('folds and unfolds the Assistant, and never closes it together with the note', async () => {
+  it('folds and unfolds the Assistant, and closing the note leaves it folded', async () => {
     const user = userEvent.setup()
     fakeApi({ 'GET /api/notes': () => jsonResponse([NOTE_A]) })
 
@@ -342,9 +342,15 @@ describe('App', () => {
     expect(screen.queryByRole('textbox', { name: 'Message' })).not.toBeInTheDocument()
     expect(container.firstChild).toHaveClass('wide-note')
 
-    // Closing the note unfolds the Assistant: one of them is always open.
+    // Closing the note leaves the Assistant as it was: both are closed together.
     await user.click(screen.getByRole('button', { name: 'Close note' }))
-    expect(toggle).toHaveAttribute('aria-expanded', 'true')
-    expect(screen.getByRole('textbox', { name: 'Message' })).toBeInTheDocument()
+    expect(toggle).toHaveAttribute('aria-expanded', 'false')
+    expect(container.firstChild).toHaveClass('wide-note', 'wide-list')
+    expect(localStorage.getItem('kwiktots.wide')).toBe('both')
+
+    // Unfolding the Assistant leaves the note closed.
+    await user.click(toggle)
+    expect(container.firstChild).toHaveClass('wide-list')
+    expect(container.firstChild).not.toHaveClass('wide-note')
   })
 })
