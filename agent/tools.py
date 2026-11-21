@@ -3,12 +3,13 @@
 import json
 import os
 import urllib.request
+import urllib.error
 
 API_URL = os.environ.get("NOTES_API_URL", "http://localhost:8000")
 
 
 def list_notes() -> str:
-    with urllib.request.urlopen(f"{API_URL}/notes") as response:
+    with urllib.request.urlopen(f"{API_URL}/notes", timeout=10) as response:
         notes = json.load(response)
     if not notes:
         return "There are no notes yet."
@@ -23,7 +24,7 @@ def create_note(title: str, body: str) -> str:
         headers={"Content-Type": "application/json"},
         method="POST",
     )
-    with urllib.request.urlopen(request) as response:
+    with urllib.request.urlopen(request, timeout=10) as response:
         note = json.load(response)
     return f"Created the note '{note['title']}'."
 
@@ -59,4 +60,14 @@ ACTIONS = {"list_notes": list_notes, "create_note": create_note}
 
 
 def run_tool(name: str, args: dict) -> str:
-    return ACTIONS[name](**args)
+    action = ACTIONS.get(name)
+    if action is None:
+        return f"Error: unknown tool '{name}'."
+    try:
+        return action(**args)
+    except urllib.error.HTTPError as e:
+        return f"Error: the notes API refused the request ({e.code})."
+    except urllib.error.URLError:
+        return "Error: the notes service is not reachable. Tell the user to try again later."
+    except TimeoutError:
+        return "Error: the notes service took too long to answer. Tell the user to try again."
