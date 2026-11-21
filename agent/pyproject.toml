@@ -3,4 +3,6 @@ name = "kwiktots-agent"
 version = "0.1.0"
 description = "Note tools for the Kwiktots agent service"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = ["anthropic"]
+[tool.setuptools]
+py-modules = ["agent", "tools"]
