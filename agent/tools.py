@@ -13,7 +13,7 @@ def list_notes() -> str:
         notes = json.load(response)
     if not notes:
         return "There are no notes yet."
-    titles = ", ".join(note["title"] for note in notes)
+    titles = ", ".join(f"{note['id']}: {note['title']}" for note in notes)
     return f"There are {len(notes)} notes: {titles}."
 
 
@@ -26,7 +26,7 @@ def create_note(title: str, body: str) -> str:
     )
     with urllib.request.urlopen(request, timeout=10) as response:
         note = json.load(response)
-    return f"Created the note '{note['title']}'."
+    return f"Created note id {note['id']}: '{note['title']}'."
 
 
 TOOLS = [
