@@ -13,6 +13,7 @@ export type SheetStop = 'folded' | 'default' | 'full'
 interface ChatProps {
   stop: SheetStop
   onStop: (stop: SheetStop) => void
+  onReply: () => void
 }
 
 // Keep these in step with the phone block at the end of index.css.
@@ -38,7 +39,7 @@ const NEXT_STOP: Record<SheetStop, SheetStop> = {
   full: 'folded',
 }
 
-export function Chat({ stop, onStop }: ChatProps) {
+export function Chat({ stop, onStop, onReply }: ChatProps) {
   const folded = stop === 'folded'
   const [dragHeight, setDragHeight] = useState<number | undefined>(undefined)
   const paneRef = useRef<HTMLElement>(null)
@@ -65,6 +66,7 @@ export function Chat({ stop, onStop }: ChatProps) {
     try {
       const reply = await sendChat(text)
       setMessages((current) => [...current, { from: 'assistant', text: reply }])
+      onReply()
     } catch {
       setError(true)
     } finally {

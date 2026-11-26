@@ -133,6 +133,17 @@ function App() {
   const shownNote = notes.find((note) => note.id === shownId)
   const isNew = shownId === NEW_NOTE
 
+  // The agent changes notes on the server, so the page has to ask for them again.
+  // The open note is left as it is, so nothing being typed is lost.
+  function refreshNotes() {
+    listNotes()
+      .then((loaded) => {
+        setNotes(sortByUpdatedDesc(loaded))
+        setLoadError(undefined)
+      })
+      .catch((error: unknown) => setListError(messageFor(error)))
+  }
+
   // ---------- Saving ----------
 
   // Send what is in the fields now, after any save already on its way.
@@ -383,6 +394,7 @@ function App() {
       <Chat
         stop={panes.assistantFolded ? 'folded' : sheetFull ? 'full' : 'default'}
         onStop={changeSheetStop}
+        onReply={refreshNotes}
       />
     </div>
   )

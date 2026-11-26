@@ -19,6 +19,7 @@ dist/
 # Env files
 .env
 .env.*
+!.env.example
 
 # Larceny coordination state
 .larceny/
